@@ -2,8 +2,9 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "ZestChat",
-  description: "Chat that gets you. Anywhere. Any language.",
+  title: "ZestChat | Public rooms, real people",
+  description:
+    "Join welcoming public chat rooms by language and interest, then talk live.",
 };
 
 export default function RootLayout({
