@@ -17,7 +17,15 @@ export const authenticate: RequestHandler = async (req: Request, _res: Response,
     }
 
     const token = authHeader.substring(7);
-    const payload = verifyToken(token);
+    let payload;
+    try {
+      payload = verifyToken(token);
+    } catch {
+      throw new AppError("Invalid or expired access token", 401);
+    }
+    if (typeof payload.userId !== "string") {
+      throw new AppError("Invalid access token", 401);
+    }
 
     const session = await prisma.session.findFirst({
       where: { token, userId: payload.userId },

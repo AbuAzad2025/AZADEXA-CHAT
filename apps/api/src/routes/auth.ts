@@ -1,11 +1,15 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { authRateLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
-import { generateToken, generateRefreshToken, verifyToken } from "../utils/jwt";
+import {
+  generateToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} from "../utils/jwt";
+import { disconnectSessionSockets } from "../websocket/socket";
 
 const router: Router = Router();
 const prisma = new PrismaClient();
@@ -114,7 +118,16 @@ router.post("/refresh", async (req, res, next) => {
     const { refreshToken } = req.body;
     if (!refreshToken) throw new AppError("Refresh token required", 400);
 
-    const payload = verifyToken(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string };
+    let payload;
+    try {
+      payload = verifyRefreshToken(refreshToken);
+    } catch {
+      throw new AppError("Invalid refresh token", 401);
+    }
+    if (typeof payload.userId !== "string") {
+      throw new AppError("Invalid refresh token", 401);
+    }
+
     const session = await prisma.session.findFirst({
       where: { refreshToken, userId: payload.userId },
     });
@@ -127,6 +140,7 @@ router.post("/refresh", async (req, res, next) => {
       where: { id: session.id },
       data: { token: newAccessToken, refreshToken: newRefreshToken },
     });
+    disconnectSessionSockets(session.id);
 
     res.json({ success: true, data: { accessToken: newAccessToken, refreshToken: newRefreshToken } });
   } catch (err) {
@@ -139,7 +153,12 @@ router.post("/logout", async (req, res, next) => {
     const authHeader = req.headers.authorization;
     const token = authHeader?.replace("Bearer ", "");
     if (token) {
+      const sessions = await prisma.session.findMany({
+        where: { token },
+        select: { id: true },
+      });
       await prisma.session.deleteMany({ where: { token } });
+      sessions.forEach(({ id }) => disconnectSessionSockets(id));
     }
     res.json({ success: true, message: "Logged out successfully" });
   } catch (err) {
