@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response, NextFunction, RequestHandler } from "express";
 import { PrismaClient } from "@prisma/client";
 import { verifyToken } from "../utils/jwt";
 import { AppError } from "./errorHandler";
@@ -9,7 +9,7 @@ export interface AuthenticatedRequest extends Request {
   user?: { id: string; email: string; username: string; role: string };
 }
 
-export const authenticate = async (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+export const authenticate: RequestHandler = async (req: Request, _res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
@@ -30,7 +30,7 @@ export const authenticate = async (req: AuthenticatedRequest, _res: Response, ne
     });
     if (!user) throw new AppError("User not found", 401);
 
-    req.user = user;
+    (req as AuthenticatedRequest).user = user;
     next();
   } catch (err) {
     next(err);
