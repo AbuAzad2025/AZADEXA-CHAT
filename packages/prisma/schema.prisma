@@ -1,0 +1,445 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  passwordHash  String    @map("password_hash")
+  avatar        String?
+  language      String    @default("en")
+  country       String?
+  birthDate     DateTime? @map("birth_date")
+  status        UserStatus @default(OFFLINE)
+  role          UserRole   @default(USER)
+  emailVerified Boolean   @default(false) @map("email_verified")
+  twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  profile       UserProfile?
+  memberships   RoomMember[]
+  messagesSent  Message[]    @relation("SentMessages")
+  privateMessagesSent PrivateMessage[] @relation("SentPrivateMessages")
+  privateMessagesReceived PrivateMessage[] @relation("ReceivedPrivateMessages")
+  reportsMade   Report[]     @relation("Reporter")
+  reportsReceived Report[]   @relation("Reported")
+  bans          Ban[]
+  aiConversations AIConversation[]
+  notifications Notification[]
+  subscriptions Subscription[]
+  transactions  Transaction[]
+  giftSent      GiftTransaction[] @relation("GiftSender")
+  giftReceived  GiftTransaction[] @relation("GiftReceiver")
+  userBadges    UserBadge[]
+  sessions      Session[]
+  friendsSent   Friend[]     @relation("FriendRequester")
+  friendsReceived Friend[]   @relation("FriendRequested")
+  roomsCreated  Room[]       @relation("RoomCreator")
+
+  @@map("users")
+}
+
+model UserProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique @map("user_id")
+  bio               String?
+  coverImage        String?  @map("cover_image")
+  theme             String   @default("system")
+  coins             Int      @default(0)
+  subscriptionTier  SubscriptionTier @default(FREE) @map("subscription_tier")
+  lastActive        DateTime? @map("last_active")
+  displayName       String?  @map("display_name")
+  activity          String?
+  privacySettings   Json     @default("{}") @map("privacy_settings")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  refreshToken String? @unique @map("refresh_token")
+  deviceInfo String? @map("device_info")
+  ipAddress  String? @map("ip_address")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Room {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  type        RoomType  @default(PUBLIC)
+  language    String    @default("en")
+  category    String?
+  maxUsers    Int       @default(100) @map("max_users")
+  isPrivate   Boolean   @default(false) @map("is_private")
+  password    String?
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  creator     User      @relation(fields: [createdBy], references: [id], onDelete: Cascade, name: "RoomCreator")
+  members     RoomMember[]
+  messages    Message[]
+  giftTransactions GiftTransaction[]
+
+  @@map("rooms")
+}
+
+model RoomMember {
+  id               String    @id @default(cuid())
+  roomId           String    @map("room_id")
+  userId           String    @map("user_id")
+  role             RoomRole  @default(MEMBER)
+  joinedAt         DateTime  @default(now()) @map("joined_at")
+  lastMessageRead  DateTime? @map("last_message_read")
+  isMuted          Boolean   @default(false) @map("is_muted")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("room_members")
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  roomId      String    @map("room_id")
+  senderId    String    @map("sender_id")
+  content     String
+  type        MessageType @default(TEXT)
+  replyTo     String?   @map("reply_to")
+  isEdited    Boolean   @default(false) @map("is_edited")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade, name: "SentMessages")
+
+  @@index([roomId, createdAt])
+  @@map("messages")
+}
+
+model PrivateMessage {
+  id               String    @id @default(cuid())
+  senderId         String    @map("sender_id")
+  receiverId       String    @map("receiver_id")
+  content          String
+  type             MessageType @default(TEXT)
+  encryptedContent String?   @map("encrypted_content")
+  isRead           Boolean   @default(false) @map("is_read")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade, name: "SentPrivateMessages")
+  receiver User @relation(fields: [receiverId], references: [id], onDelete: Cascade, name: "ReceivedPrivateMessages")
+
+  @@index([senderId, receiverId, createdAt])
+  @@map("private_messages")
+}
+
+model Subscription {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  tier          SubscriptionTier @default(FREE)
+  startDate     DateTime  @default(now()) @map("start_date")
+  endDate       DateTime? @map("end_date")
+  autoRenew     Boolean   @default(false) @map("auto_renew")
+  paymentMethod String?   @map("payment_method")
+  stripeSubscriptionId String? @map("stripe_subscription_id")
+  status        SubscriptionStatus @default(ACTIVE)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      TransactionType
+  amount    Int
+  currency  String   @default("USD")
+  status    TransactionStatus @default(PENDING)
+  gateway   String   @default("stripe")
+  stripePaymentIntentId String? @map("stripe_payment_intent_id")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model Gift {
+  id        String   @id @default(cuid())
+  name        String
+  icon        String
+  price       Int
+  category    GiftCategory @default(COMMON)
+  animation   String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  transactions GiftTransaction[]
+
+  @@map("gifts")
+}
+
+model GiftTransaction {
+  id        String   @id @default(cuid())
+  senderId  String   @map("sender_id")
+  receiverId String  @map("receiver_id")
+  giftId    String   @map("gift_id")
+  roomId    String?  @map("room_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade, name: "GiftSender")
+  receiver User @relation(fields: [receiverId], references: [id], onDelete: Cascade, name: "GiftReceiver")
+  room Room? @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  gift Gift @relation(fields: [giftId], references: [id], onDelete: Cascade)
+
+  @@map("gift_transactions")
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  name        String
+  icon        String
+  description String
+  type        BadgeType @default(ACHIEVEMENT)
+  price       Int      @default(0)
+  requirements Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  badgeId   String   @map("badge_id")
+  earnedAt  DateTime @default(now()) @map("earned_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  reporterId  String   @map("reporter_id")
+  reportedId  String   @map("reported_id")
+  type        ReportType
+  reason      String
+  evidence    String?
+  status      ReportStatus @default(PENDING)
+  resolvedBy  String?  @map("resolved_by")
+  resolution  String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade, name: "Reporter")
+  reported User @relation(fields: [reportedId], references: [id], onDelete: Cascade, name: "Reported")
+
+  @@map("reports")
+}
+
+model Ban {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  reason      String
+  bannedBy    String   @map("banned_by")
+  startDate   DateTime @default(now()) @map("start_date")
+  endDate     DateTime? @map("end_date")
+  isPermanent Boolean  @default(false) @map("is_permanent")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bans")
+}
+
+model AIConversation {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  messages      Json
+  moodDetected  String?  @map("mood_detected")
+  flaggedContent Boolean @default(false) @map("flagged_content")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_conversations")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      NotificationType
+  title     String
+  content   String
+  data      Json?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model Friend {
+  id        String   @id @default(cuid())
+  requesterId String @map("requester_id")
+  requestedId String @map("requested_id")
+  status    FriendStatus @default(PENDING)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  requester User @relation(fields: [requesterId], references: [id], onDelete: Cascade, name: "FriendRequester")
+  requested User @relation(fields: [requestedId], references: [id], onDelete: Cascade, name: "FriendRequested")
+
+  @@unique([requesterId, requestedId])
+  @@map("friends")
+}
+
+enum UserStatus {
+  ONLINE
+  AWAY
+  BUSY
+  OFFLINE
+  INVISIBLE
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum RoomType {
+  PUBLIC
+  PRIVATE
+  DIRECT
+}
+
+enum RoomRole {
+  MEMBER
+  MODERATOR
+  ADMIN
+  OWNER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  SYSTEM
+}
+
+enum SubscriptionTier {
+  FREE
+  ZEST_PLUS
+  ZEST_PRO
+  ZEST_ELITE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+}
+
+enum TransactionType {
+  COIN_PURCHASE
+  SUBSCRIPTION
+  GIFT_PURCHASE
+  WITHDRAWAL
+  REFUND
+  BONUS
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum GiftCategory {
+  COMMON
+  RARE
+  LEGENDARY
+}
+
+enum BadgeType {
+  ACHIEVEMENT
+  VERIFIED
+  CREATOR
+  GAMER
+  VIP
+  EARLY_ADOPTER
+}
+
+enum ReportType {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  INAPPROPRIATE_CONTENT
+  IMPERSONATION
+  SCAM
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum NotificationType {
+  MESSAGE
+  FRIEND_REQUEST
+  SYSTEM
+  MENTION
+  ROOM_INVITE
+  GIFT_RECEIVED
+  SUBSCRIPTION
+  MODERATION
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}

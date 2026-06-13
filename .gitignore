@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs / cache
+.turbo/
+.next/
+dist/
+build/
+coverage/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# system
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.cache/
+
+# temp / artifacts
+temp_docx/
+tool-outputs/
+*.zip
+*.jpeg

@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FFF7E8;
+  --foreground: #0D1B2A;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+}
+
+.art-brush-ribbon {
+  height: 4px;
+  background: linear-gradient(90deg, #111827 0%, #FFFFFF 33%, #007A3D 66%, #C8102E 100%);
+}
+
+.painted-card {
+  background: #FFF7E8;
+  border: 1px solid #DCE7F3;
+  box-shadow: 0 16px 35px rgba(13,27,42,0.10);
+  border-radius: 28px 22px 30px 18px;
+}
