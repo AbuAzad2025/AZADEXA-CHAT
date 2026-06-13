@@ -1,11 +1,48 @@
 import { Router } from "express";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { z } from "zod";
 import { authenticate, AuthenticatedRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 
 const router: Router = Router();
 const prisma = new PrismaClient();
 const MAX_JOIN_ATTEMPTS = 3;
+const DEFAULT_MESSAGE_LIMIT = 50;
+
+const messageHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(DEFAULT_MESSAGE_LIMIT),
+  before: z.string().cuid().optional(),
+});
+
+const sendMessageSchema = z.object({
+  content: z.string().trim().min(1).max(4096),
+});
+
+const messageSelect = {
+  id: true,
+  roomId: true,
+  content: true,
+  type: true,
+  replyTo: true,
+  isEdited: true,
+  isDeleted: true,
+  createdAt: true,
+  updatedAt: true,
+  sender: {
+    select: {
+      id: true,
+      username: true,
+      avatar: true,
+    },
+  },
+} satisfies Prisma.MessageSelect;
+
+const parseOrThrow = <T>(result: z.SafeParseReturnType<unknown, T>): T => {
+  if (!result.success) {
+    throw new AppError(result.error.issues[0]?.message || "Invalid request", 400);
+  }
+  return result.data;
+};
 
 // GET /api/v1/chat/rooms
 router.get("/rooms", async (req, res, next) => {
@@ -142,6 +179,116 @@ router.post("/rooms/:roomId/leave", authenticate, async (req, res, next) => {
     });
 
     return res.json({ success: true, data: { roomId } });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/v1/chat/rooms/:roomId/messages
+router.get("/rooms/:roomId/messages", authenticate, async (req, res, next) => {
+  try {
+    const { roomId } = req.params;
+    const userId = (req as AuthenticatedRequest).user!.id;
+    const { limit, before } = parseOrThrow(
+      messageHistoryQuerySchema.safeParse(req.query)
+    );
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId, type: "PUBLIC" },
+      select: { id: true },
+    });
+    if (!room) throw new AppError("Room not found", 404);
+
+    const membership = await prisma.roomMember.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { id: true },
+    });
+    if (!membership) throw new AppError("Join the room to view messages", 403);
+
+    let beforeMessage:
+      | {
+          id: string;
+          createdAt: Date;
+        }
+      | null = null;
+
+    if (before) {
+      beforeMessage = await prisma.message.findFirst({
+        where: { id: before, roomId, isDeleted: false },
+        select: { id: true, createdAt: true },
+      });
+      if (!beforeMessage) throw new AppError("Invalid message cursor", 400);
+    }
+
+    const messages = await prisma.message.findMany({
+      where: {
+        roomId,
+        isDeleted: false,
+        ...(beforeMessage && {
+          OR: [
+            { createdAt: { lt: beforeMessage.createdAt } },
+            {
+              createdAt: beforeMessage.createdAt,
+              id: { lt: beforeMessage.id },
+            },
+          ],
+        }),
+      },
+      select: messageSelect,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
+
+    const hasMore = messages.length > limit;
+    const page = hasMore ? messages.slice(0, limit) : messages;
+    const nextCursor = hasMore ? page[page.length - 1]?.id || null : null;
+
+    return res.json({
+      success: true,
+      data: {
+        messages: [...page].reverse(),
+        nextCursor,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/v1/chat/rooms/:roomId/messages
+router.post("/rooms/:roomId/messages", authenticate, async (req, res, next) => {
+  try {
+    const { roomId } = req.params;
+    const userId = (req as AuthenticatedRequest).user!.id;
+    const { content } = parseOrThrow(sendMessageSchema.safeParse(req.body));
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId, type: "PUBLIC" },
+      select: { id: true },
+    });
+    if (!room) throw new AppError("Room not found", 404);
+
+    const membership = await prisma.roomMember.findUnique({
+      where: { roomId_userId: { roomId, userId } },
+      select: { isMuted: true },
+    });
+    if (!membership) throw new AppError("Join the room to send messages", 403);
+    if (membership.isMuted) throw new AppError("You are muted in this room", 403);
+
+    const message = await prisma.message.create({
+      data: {
+        roomId,
+        senderId: userId,
+        content,
+        type: "TEXT",
+      },
+      select: messageSelect,
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: { message },
+    });
   } catch (err) {
     return next(err);
   }
