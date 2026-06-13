@@ -10,6 +10,8 @@ import { generateToken, generateRefreshToken, verifyToken } from "../utils/jwt";
 const router: Router = Router();
 const prisma = new PrismaClient();
 
+const getSessionExpiry = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
 const registerSchema = z.object({
   email: z.string().email(),
   username: z.string().min(3).max(30).regex(/^[a-zA-Z0-9_]+$/),
@@ -50,7 +52,7 @@ router.post("/register", async (req, res, next) => {
     const refreshToken = generateRefreshToken(user.id);
 
     await prisma.session.create({
-      data: { userId: user.id, token: accessToken, refreshToken },
+      data: { userId: user.id, token: accessToken, refreshToken, expiresAt: getSessionExpiry() },
     });
 
     res.status(201).json({
@@ -85,7 +87,7 @@ router.post("/login", authRateLimiter, async (req, res, next) => {
     const refreshToken = generateRefreshToken(user.id);
 
     await prisma.session.create({
-      data: { userId: user.id, token: accessToken, refreshToken },
+      data: { userId: user.id, token: accessToken, refreshToken, expiresAt: getSessionExpiry() },
     });
 
     res.json({
