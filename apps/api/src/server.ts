@@ -5,6 +5,7 @@ import morgan from "morgan";
 import compression from "compression";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
+import path from "path";
 import { createServer } from "http";
 import { PrismaClient } from "@prisma/client";
 
@@ -21,6 +22,8 @@ import mediaRoutes from "./routes/media";
 
 import { logger } from "./utils/logger";
 
+const envPath = path.resolve(process.cwd(), "../../.env");
+dotenv.config({ path: envPath });
 dotenv.config();
 
 const app = express();
