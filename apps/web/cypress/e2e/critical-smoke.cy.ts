@@ -110,6 +110,50 @@ describe("critical signed-in journey", () => {
       success: true,
       data: { updatedCount: 0 },
     }).as("markRead");
+    cy.intercept("GET", `${API_URL}/api/v1/users/me`, {
+      success: true,
+      data: {
+        user: {
+          ...alice,
+          avatar: null,
+          language: "en",
+          country: null,
+          status: "ONLINE",
+          emailVerified: false,
+          createdAt: "2026-06-14T00:00:00.000Z",
+          profile: {
+            displayName: null,
+            bio: null,
+            activity: null,
+            theme: "system",
+            subscriptionTier: "FREE",
+          },
+        },
+      },
+    }).as("account");
+    cy.intercept("PATCH", `${API_URL}/api/v1/users/me`, (request) => {
+      request.reply({
+        success: true,
+        data: {
+          user: {
+            ...alice,
+            avatar: null,
+            language: request.body.language,
+            country: request.body.country,
+            status: "ONLINE",
+            emailVerified: false,
+            createdAt: "2026-06-14T00:00:00.000Z",
+            profile: {
+              displayName: request.body.displayName,
+              bio: request.body.bio,
+              activity: request.body.activity,
+              theme: "system",
+              subscriptionTier: "FREE",
+            },
+          },
+        },
+      });
+    }).as("updateAccount");
   });
 
   it("signs in, opens a room, reports a message, and starts a direct chat", () => {
@@ -154,6 +198,17 @@ describe("critical signed-in journey", () => {
     cy.wait(["@directMessages", "@markRead"]);
     cy.contains("h2", "@bobby").should("be.visible");
     cy.get('textarea[aria-label="Message bobby"]').should("be.visible");
+
+    cy.get("button.user-chip").click();
+    cy.wait("@account");
+    cy.contains("h2", "Your profile").should("be.visible");
+    cy.get('input[placeholder="The name people know you by"]').type("Alice A.");
+    cy.get('textarea[placeholder="Share a short introduction."]').type(
+      "I enjoy welcoming thoughtful communities.",
+    );
+    cy.contains("button", "Save profile").click();
+    cy.wait("@updateAccount");
+    cy.contains("Your profile was updated.").should("be.visible");
   });
 
   it("prioritizes sign-in and stays within the mobile viewport", () => {

@@ -41,6 +41,12 @@ import {
   PrivateMessage,
 } from "@/components/DirectMessagesWorkspace";
 import {
+  AccountPanel,
+  AccountProfile,
+  AccountProfileUpdate,
+  AccountRail,
+} from "@/components/AccountWorkspace";
+import {
   AdminReport,
   ModerationFilter,
   ModerationPanel,
@@ -178,7 +184,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<
-    "rooms" | "direct" | "zesty" | "safety" | "moderation"
+    "rooms" | "direct" | "zesty" | "safety" | "moderation" | "account"
   >("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -218,6 +224,11 @@ export default function Home() {
   const [selectedUserReport, setSelectedUserReport] =
     useState<UserReport | null>(null);
   const [userReportsLoading, setUserReportsLoading] = useState(false);
+  const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(
+    null,
+  );
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountSaving, setAccountSaving] = useState(false);
   const [moderationSummary, setModerationSummary] = useState<ModerationSummary>(
     {
       counts: {
@@ -806,6 +817,53 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [loadUserReports, session, workspaceMode]);
 
+  const loadAccountProfile = useCallback(async () => {
+    if (!session) return;
+    setAccountLoading(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<{ user: AccountProfile }>(
+        "/api/v1/users/me",
+      );
+      setAccountProfile(data.user);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load your account",
+      );
+    } finally {
+      setAccountLoading(false);
+    }
+  }, [authenticatedRequest, session]);
+
+  useEffect(() => {
+    if (workspaceMode !== "account" || !session) return;
+    const timer = window.setTimeout(() => void loadAccountProfile(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadAccountProfile, session, workspaceMode]);
+
+  const saveAccountProfile = async (update: AccountProfileUpdate) => {
+    setAccountSaving(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<{ user: AccountProfile }>(
+        "/api/v1/users/me",
+        { method: "PATCH", body: update },
+      );
+      setAccountProfile(data.user);
+      setNotice("Your profile was updated.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to update your profile",
+      );
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
   const loadDirectConversations = useCallback(async () => {
     if (!session) return;
     setDirectLoading(true);
@@ -1151,6 +1209,7 @@ export default function Home() {
     setMessages([]);
     setUserReports([]);
     setSelectedUserReport(null);
+    setAccountProfile(null);
     setError(null);
     setNotice("You are signed out.");
   };
@@ -1211,10 +1270,15 @@ export default function Home() {
           </div>
           {session && (
             <>
-              <div className="user-chip">
+              <button
+                className="user-chip"
+                onClick={() => setWorkspaceMode("account")}
+                title="Open your account"
+                aria-pressed={workspaceMode === "account"}
+              >
                 <span>{initials(session.user.username)}</span>
                 <strong>{session.user.username}</strong>
-              </div>
+              </button>
               <button
                 className="icon-button"
                 onClick={logout}
@@ -1333,7 +1397,9 @@ export default function Home() {
             )}
           </nav>
 
-          {workspaceMode === "rooms" ? (
+          {workspaceMode === "account" ? (
+            <AccountRail profile={accountProfile} loading={accountLoading} />
+          ) : workspaceMode === "rooms" ? (
             <>
               <div className="rail-heading">
                 <div>
@@ -1580,7 +1646,14 @@ export default function Home() {
         </aside>
 
         <section className="conversation-panel">
-          {workspaceMode === "direct" && session ? (
+          {workspaceMode === "account" && session ? (
+            <AccountPanel
+              profile={accountProfile}
+              loading={accountLoading}
+              saving={accountSaving}
+              onSave={saveAccountProfile}
+            />
+          ) : workspaceMode === "direct" && session ? (
             <DirectPanel
               currentUserId={session.user.id}
               user={selectedDirectUser}
