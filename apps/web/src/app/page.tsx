@@ -155,7 +155,7 @@ const formatTime = (value: string) =>
 const initials = (name: string) => name.slice(0, 2).toUpperCase();
 
 const getBlockedConversationData = (
-  value: unknown
+  value: unknown,
 ): { conversationId: string; remainingMessages?: number } | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const data = value as Record<string, unknown>;
@@ -200,7 +200,7 @@ export default function Home() {
     ZestyConversationSummary[]
   >([]);
   const [zestyConversationId, setZestyConversationId] = useState<string | null>(
-    null
+    null,
   );
   const [zestyMessages, setZestyMessages] = useState<ZestyMessage[]>([]);
   const [zestyDraft, setZestyDraft] = useState("");
@@ -209,15 +209,17 @@ export default function Home() {
   const [zestyDeleting, setZestyDeleting] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [reportSubmitting, setReportSubmitting] = useState(false);
-  const [moderationSummary, setModerationSummary] = useState<ModerationSummary>({
-    counts: {
-      PENDING: 0,
-      UNDER_REVIEW: 0,
-      RESOLVED: 0,
-      DISMISSED: 0,
+  const [moderationSummary, setModerationSummary] = useState<ModerationSummary>(
+    {
+      counts: {
+        PENDING: 0,
+        UNDER_REVIEW: 0,
+        RESOLVED: 0,
+        DISMISSED: 0,
+      },
+      open: 0,
     },
-    open: 0,
-  });
+  );
   const [moderationReports, setModerationReports] = useState<AdminReport[]>([]);
   const [selectedModerationReport, setSelectedModerationReport] =
     useState<AdminReport | null>(null);
@@ -229,7 +231,9 @@ export default function Home() {
   const [directConversations, setDirectConversations] = useState<
     DirectConversation[]
   >([]);
-  const [directSearchResults, setDirectSearchResults] = useState<DirectUser[]>([]);
+  const [directSearchResults, setDirectSearchResults] = useState<DirectUser[]>(
+    [],
+  );
   const [selectedDirectUser, setSelectedDirectUser] =
     useState<DirectUser | null>(null);
   const [directMessages, setDirectMessages] = useState<PrivateMessage[]>([]);
@@ -316,7 +320,7 @@ export default function Home() {
       options: {
         method?: "GET" | "POST" | "PATCH" | "DELETE";
         body?: unknown;
-      } = {}
+      } = {},
     ) => {
       if (!session) throw new ApiError("Sign in to continue", 401);
 
@@ -326,7 +330,10 @@ export default function Home() {
           token: session.accessToken,
         });
       } catch (requestError) {
-        if (!(requestError instanceof ApiError) || requestError.status !== 401) {
+        if (
+          !(requestError instanceof ApiError) ||
+          requestError.status !== 401
+        ) {
           throw requestError;
         }
 
@@ -339,7 +346,7 @@ export default function Home() {
         }
       }
     },
-    [persistSession, refreshSession, session]
+    [persistSession, refreshSession, session],
   );
 
   const loadRooms = useCallback(async () => {
@@ -351,7 +358,7 @@ export default function Home() {
 
     try {
       const data = await apiRequest<Room[]>(
-        `/api/v1/chat/rooms${params.size ? `?${params}` : ""}`
+        `/api/v1/chat/rooms${params.size ? `?${params}` : ""}`,
       );
       setRooms(data);
       if (selectedRoom && !data.some((room) => room.id === selectedRoom.id)) {
@@ -359,7 +366,9 @@ export default function Home() {
       }
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to load rooms"
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load rooms",
       );
     } finally {
       setRoomsLoading(false);
@@ -412,12 +421,14 @@ export default function Home() {
       setMessages((current) =>
         current.some(({ id }) => id === message.id)
           ? current
-          : [...current, message]
+          : [...current, message],
       );
     });
     socket.on("private:new", (message: PrivateMessage) => {
       const otherUser =
-        message.senderId === session.user.id ? message.receiver : message.sender;
+        message.senderId === session.user.id
+          ? message.receiver
+          : message.sender;
       const conversationOpen =
         workspaceModeRef.current === "direct" &&
         selectedDirectUserRef.current?.id === otherUser.id;
@@ -442,7 +453,7 @@ export default function Home() {
         setDirectMessages((current) =>
           current.some(({ id }) => id === message.id)
             ? current
-            : [...current, message]
+            : [...current, message],
         );
         if (incoming) {
           void apiRequest(`/api/v1/chat/private/${otherUser.id}/read`, {
@@ -452,9 +463,8 @@ export default function Home() {
         }
       }
     });
-    socket.on(
-      "operation:error",
-      ({ error: socketError }: { error: string }) => setError(socketError)
+    socket.on("operation:error", ({ error: socketError }: { error: string }) =>
+      setError(socketError),
     );
 
     return () => {
@@ -497,13 +507,13 @@ export default function Home() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : "Unable to open this Zesty conversation"
+            : "Unable to open this Zesty conversation",
         );
       } finally {
         setZestyLoading(false);
       }
     },
-    [authenticatedRequest]
+    [authenticatedRequest],
   );
 
   const loadZestyWorkspace = useCallback(async () => {
@@ -532,7 +542,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to open Zesty"
+          : "Unable to open Zesty",
       );
     } finally {
       setZestyLoading(false);
@@ -575,7 +585,7 @@ export default function Home() {
               conversationId: zestyConversationId,
             }),
           },
-        }
+        },
       );
       setZestyConversationId(data.conversation.id);
       setZestyMessages(data.conversation.messages);
@@ -595,7 +605,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Zesty could not answer right now"
+          : "Zesty could not answer right now",
       );
     } finally {
       setZestySending(false);
@@ -609,7 +619,7 @@ export default function Home() {
     try {
       await authenticatedRequest<{ deleted: boolean }>(
         `/api/v1/ai/conversations/${zestyConversationId}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
       startNewZestyConversation();
       await refreshZestyConversations();
@@ -618,7 +628,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to delete this conversation"
+          : "Unable to delete this conversation",
       );
     } finally {
       setZestyDeleting(false);
@@ -637,7 +647,7 @@ export default function Home() {
           : `?status=${encodeURIComponent(moderationFilter)}`;
       const [summary, reportPage] = await Promise.all([
         authenticatedRequest<ModerationSummary>(
-          "/api/v1/admin/reports/summary"
+          "/api/v1/admin/reports/summary",
         ),
         authenticatedRequest<{
           reports: AdminReport[];
@@ -654,23 +664,16 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load the moderation queue"
+          : "Unable to load the moderation queue",
       );
     } finally {
       setModerationLoading(false);
     }
-  }, [
-    authenticatedRequest,
-    isModerator,
-    moderationFilter,
-  ]);
+  }, [authenticatedRequest, isModerator, moderationFilter]);
 
   useEffect(() => {
     if (workspaceMode !== "moderation" || !isModerator) return;
-    const timer = window.setTimeout(
-      () => void loadModerationWorkspace(),
-      0
-    );
+    const timer = window.setTimeout(() => void loadModerationWorkspace(), 0);
     return () => window.clearTimeout(timer);
   }, [isModerator, loadModerationWorkspace, workspaceMode]);
 
@@ -680,7 +683,7 @@ export default function Home() {
   };
 
   const updateModerationReport = async (
-    status: Exclude<ReportStatus, "PENDING">
+    status: Exclude<ReportStatus, "PENDING">,
   ) => {
     if (!selectedModerationReport || moderationUpdating) return;
     const finalStatus = status === "RESOLVED" || status === "DISMISSED";
@@ -702,19 +705,19 @@ export default function Home() {
               resolution: moderationResolution.trim(),
             }),
           },
-        }
+        },
       );
       setNotice(
         status === "UNDER_REVIEW"
           ? "Report marked as under review."
-          : `Report ${status.toLowerCase()}.`
+          : `Report ${status.toLowerCase()}.`,
       );
       await loadModerationWorkspace();
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to update this report"
+          : "Unable to update this report",
       );
     } finally {
       setModerationUpdating(false);
@@ -741,7 +744,7 @@ export default function Home() {
               `excerpt:${reportTarget.excerpt}`,
             ].join("\n"),
           },
-        }
+        },
       );
       setReportTarget(null);
       setNotice("Thanks. The safety team will review your report.");
@@ -749,7 +752,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to submit this report"
+          : "Unable to submit this report",
       );
     } finally {
       setReportSubmitting(false);
@@ -769,7 +772,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load direct messages"
+          : "Unable to load direct messages",
       );
     } finally {
       setDirectLoading(false);
@@ -778,10 +781,7 @@ export default function Home() {
 
   useEffect(() => {
     if (workspaceMode !== "direct" || !session) return;
-    const timer = window.setTimeout(
-      () => void loadDirectConversations(),
-      0
-    );
+    const timer = window.setTimeout(() => void loadDirectConversations(), 0);
     return () => window.clearTimeout(timer);
   }, [loadDirectConversations, session, workspaceMode]);
 
@@ -794,7 +794,7 @@ export default function Home() {
     setError(null);
     try {
       const data = await authenticatedRequest<{ users: DirectUser[] }>(
-        `/api/v1/users/search?q=${encodeURIComponent(query)}`
+        `/api/v1/users/search?q=${encodeURIComponent(query)}`,
       );
       setDirectSearchResults(data.users);
       if (data.users.length === 0) {
@@ -804,7 +804,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to search users"
+          : "Unable to search users",
       );
     } finally {
       setDirectSearching(false);
@@ -826,29 +826,29 @@ export default function Home() {
       }>(`/api/v1/chat/private/${user.id}/messages?limit=50`);
       await authenticatedRequest<{ updatedCount: number }>(
         `/api/v1/chat/private/${user.id}/read`,
-        { method: "POST" }
+        { method: "POST" },
       );
       setSelectedDirectUser(data.user);
       setDirectMessages(
         data.messages.map((message) =>
           message.receiverId === session?.user.id
             ? { ...message, isRead: true }
-            : message
-        )
+            : message,
+        ),
       );
       setDirectNextCursor(data.nextCursor);
       setDirectConversations((current) =>
         current.map((conversation) =>
           conversation.user.id === user.id
             ? { ...conversation, unreadCount: 0 }
-            : conversation
-        )
+            : conversation,
+        ),
       );
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to open this conversation"
+          : "Unable to open this conversation",
       );
     } finally {
       setDirectLoading(false);
@@ -864,8 +864,8 @@ export default function Home() {
         nextCursor: string | null;
       }>(
         `/api/v1/chat/private/${selectedDirectUser.id}/messages?limit=50&before=${encodeURIComponent(
-          directNextCursor
-        )}`
+          directNextCursor,
+        )}`,
       );
       setDirectMessages((current) => [...data.messages, ...current]);
       setDirectNextCursor(data.nextCursor);
@@ -873,7 +873,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load earlier messages"
+          : "Unable to load earlier messages",
       );
     } finally {
       setDirectOlderLoading(false);
@@ -904,7 +904,7 @@ export default function Home() {
           return;
         }
         setDirectDraft("");
-      }
+      },
     );
   };
 
@@ -915,7 +915,7 @@ export default function Home() {
       setNextCursor(null);
       try {
         const page = await authenticatedRequest<MessagePage>(
-          `/api/v1/chat/rooms/${roomId}/messages?limit=50`
+          `/api/v1/chat/rooms/${roomId}/messages?limit=50`,
         );
         setMessages(page.messages);
         setNextCursor(page.nextCursor);
@@ -923,13 +923,13 @@ export default function Home() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : "Unable to load messages"
+            : "Unable to load messages",
         );
       } finally {
         setHistoryLoading(false);
       }
     },
-    [authenticatedRequest]
+    [authenticatedRequest],
   );
 
   const joinRoom = async (room: Room) => {
@@ -944,7 +944,7 @@ export default function Home() {
     try {
       await authenticatedRequest<{ roomId: string }>(
         `/api/v1/chat/rooms/${room.id}/join`,
-        { method: "POST" }
+        { method: "POST" },
       );
       if (selectedRoom && selectedRoom.id !== room.id) {
         socketRef.current?.emit("room:leave", { roomId: selectedRoom.id });
@@ -954,15 +954,18 @@ export default function Home() {
         "room:join",
         { roomId: room.id },
         (response: SocketAck<{ roomId: string }>) => {
-          if (!response.success) setError(response.error || "Unable to connect");
-        }
+          if (!response.success)
+            setError(response.error || "Unable to connect");
+        },
       );
       await loadHistory(room.id);
       setNotice(`You joined ${room.name}.`);
       void loadRooms();
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to join room"
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to join room",
       );
     } finally {
       setJoiningRoomId(null);
@@ -975,7 +978,7 @@ export default function Home() {
     try {
       await authenticatedRequest<{ roomId: string }>(
         `/api/v1/chat/rooms/${selectedRoom.id}/leave`,
-        { method: "POST" }
+        { method: "POST" },
       );
       socketRef.current?.emit("room:leave", { roomId: selectedRoom.id });
       setNotice(`You left ${selectedRoom.name}.`);
@@ -985,7 +988,9 @@ export default function Home() {
       void loadRooms();
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to leave room"
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to leave room",
       );
     }
   };
@@ -996,8 +1001,8 @@ export default function Home() {
     try {
       const page = await authenticatedRequest<MessagePage>(
         `/api/v1/chat/rooms/${selectedRoom.id}/messages?limit=50&before=${encodeURIComponent(
-          nextCursor
-        )}`
+          nextCursor,
+        )}`,
       );
       setMessages((current) => [...page.messages, ...current]);
       setNextCursor(page.nextCursor);
@@ -1005,7 +1010,7 @@ export default function Home() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Unable to load older messages"
+          : "Unable to load older messages",
       );
     } finally {
       setOlderLoading(false);
@@ -1029,7 +1034,7 @@ export default function Home() {
           return;
         }
         setDraft("");
-      }
+      },
     );
   };
 
@@ -1039,29 +1044,26 @@ export default function Home() {
     setError(null);
 
     try {
-      const data = await apiRequest<Session>(
-        `/api/v1/auth/${authMode}`,
-        {
-          method: "POST",
-          body:
-            authMode === "register"
-              ? { email, username, password }
-              : { email, password },
-        }
-      );
+      const data = await apiRequest<Session>(`/api/v1/auth/${authMode}`, {
+        method: "POST",
+        body:
+          authMode === "register"
+            ? { email, username, password }
+            : { email, password },
+      });
       persistSession(data);
       setPassword("");
       setNotice(
         authMode === "register"
           ? `Welcome to ZestChat, ${data.user.username}.`
-          : `Welcome back, ${data.user.username}.`
+          : `Welcome back, ${data.user.username}.`,
       );
       if (selectedRoom) await joinRoomWithSession(selectedRoom, data);
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Authentication failed"
+          : "Authentication failed",
       );
     } finally {
       setAuthLoading(false);
@@ -1072,17 +1074,19 @@ export default function Home() {
     try {
       await apiRequest<{ roomId: string }>(
         `/api/v1/chat/rooms/${room.id}/join`,
-        { method: "POST", token: activeSession.accessToken }
+        { method: "POST", token: activeSession.accessToken },
       );
       const page = await apiRequest<MessagePage>(
         `/api/v1/chat/rooms/${room.id}/messages?limit=50`,
-        { token: activeSession.accessToken }
+        { token: activeSession.accessToken },
       );
       setMessages(page.messages);
       setNextCursor(page.nextCursor);
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : "Unable to join room"
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to join room",
       );
     }
   };
@@ -1097,20 +1101,21 @@ export default function Home() {
     persistSession(null);
     setSelectedRoom(null);
     setMessages([]);
+    setError(null);
     setNotice("You are signed out.");
   };
 
   const roomLanguages = useMemo(
     () => Array.from(new Set(rooms.map((room) => room.language))).sort(),
-    [rooms]
+    [rooms],
   );
   const directUnreadCount = useMemo(
     () =>
       directConversations.reduce(
         (total, conversation) => total + conversation.unreadCount,
-        0
+        0,
       ),
-    [directConversations]
+    [directConversations],
   );
 
   if (!sessionReady) {
@@ -1124,8 +1129,11 @@ export default function Home() {
 
   return (
     <main className="app-canvas">
-      <div className="ink-orbit ink-orbit-one" />
-      <div className="ink-orbit ink-orbit-two" />
+      <a className="skip-link" href="#workspace">
+        Skip to workspace
+      </a>
+      <div className="ink-orbit ink-orbit-one" aria-hidden="true" />
+      <div className="ink-orbit ink-orbit-two" aria-hidden="true" />
 
       <header className="topbar">
         <div className="brand-lockup">
@@ -1139,7 +1147,11 @@ export default function Home() {
         </div>
 
         <div className="topbar-actions">
-          <div className={`connection-pill ${socketConnected ? "is-live" : ""}`}>
+          <div
+            className={`connection-pill ${socketConnected ? "is-live" : ""}`}
+            role="status"
+            aria-live="polite"
+          >
             <span />
             {session
               ? socketConnected
@@ -1153,7 +1165,12 @@ export default function Home() {
                 <span>{initials(session.user.username)}</span>
                 <strong>{session.user.username}</strong>
               </div>
-              <button className="icon-button" onClick={logout} title="Sign out">
+              <button
+                className="icon-button"
+                onClick={logout}
+                title="Sign out"
+                aria-label="Sign out"
+              >
                 <LogOut size={18} />
               </button>
             </>
@@ -1169,7 +1186,11 @@ export default function Home() {
       </div>
 
       {(notice || error) && (
-        <div className={`toast-strip ${error ? "is-error" : ""}`}>
+        <div
+          className={`toast-strip ${error ? "is-error" : ""}`}
+          role={error ? "alert" : "status"}
+          aria-live={error ? "assertive" : "polite"}
+        >
           {error ? <X size={18} /> : <CheckCircle2 size={18} />}
           <span>{error || notice}</span>
           <button
@@ -1184,7 +1205,11 @@ export default function Home() {
         </div>
       )}
 
-      <section className="chat-shell">
+      <section
+        id="workspace"
+        className={`chat-shell ${session ? "is-authenticated" : "is-guest"}`}
+        tabIndex={-1}
+      >
         <aside className="room-rail">
           <nav
             className={`workspace-switch ${isModerator ? "has-admin" : ""}`}
@@ -1193,6 +1218,7 @@ export default function Home() {
             <button
               className={workspaceMode === "rooms" ? "is-active" : ""}
               onClick={() => setWorkspaceMode("rooms")}
+              aria-pressed={workspaceMode === "rooms"}
             >
               <Globe2 size={15} />
               Rooms
@@ -1207,7 +1233,10 @@ export default function Home() {
                 }
               }}
               disabled={!session}
-              title={session ? "Open direct messages" : "Sign in to message people"}
+              title={
+                session ? "Open direct messages" : "Sign in to message people"
+              }
+              aria-pressed={workspaceMode === "direct"}
             >
               <Mail size={15} />
               Direct
@@ -1222,6 +1251,7 @@ export default function Home() {
               onClick={() => session && setWorkspaceMode("zesty")}
               disabled={!session}
               title={session ? "Open Zesty" : "Sign in to ask Zesty"}
+              aria-pressed={workspaceMode === "zesty"}
             >
               <Sparkles size={15} />
               Zesty
@@ -1231,6 +1261,7 @@ export default function Home() {
                 className={workspaceMode === "moderation" ? "is-active" : ""}
                 onClick={() => setWorkspaceMode("moderation")}
                 title="Open the moderation queue"
+                aria-pressed={workspaceMode === "moderation"}
               >
                 <ShieldAlert size={15} />
                 Safety
@@ -1271,6 +1302,7 @@ export default function Home() {
                     value={language}
                     onChange={(event) => setLanguage(event.target.value)}
                     placeholder="Language, e.g. en"
+                    aria-label="Filter rooms by language"
                   />
                   <datalist id="room-languages">
                     {roomLanguages.map((value) => (
@@ -1284,6 +1316,7 @@ export default function Home() {
                     value={category}
                     onChange={(event) => setCategory(event.target.value)}
                     placeholder="Category"
+                    aria-label="Filter rooms by category"
                   />
                 </label>
                 <button className="filter-button" type="submit">
@@ -1291,7 +1324,11 @@ export default function Home() {
                 </button>
               </form>
 
-              <div className="room-list">
+              <div
+                className="room-list"
+                aria-live="polite"
+                aria-busy={roomsLoading}
+              >
                 {roomsLoading ? (
                   <div className="rail-state">
                     <Loader2 className="animate-spin" />
@@ -1320,7 +1357,9 @@ export default function Home() {
                         <span className="room-language">{room.language}</span>
                       </div>
                       <strong>{room.name}</strong>
-                      <p>{room.description || "A public place to meet and talk."}</p>
+                      <p>
+                        {room.description || "A public place to meet and talk."}
+                      </p>
                       <div className="room-meta">
                         <span>
                           <Users size={14} />
@@ -1329,7 +1368,10 @@ export default function Home() {
                         <span>{room.category || "General"}</span>
                       </div>
                       {joiningRoomId === room.id && (
-                        <Loader2 className="room-loader animate-spin" size={18} />
+                        <Loader2
+                          className="room-loader animate-spin"
+                          size={18}
+                        />
                       )}
                     </button>
                   ))
@@ -1419,9 +1461,13 @@ export default function Home() {
                     <button
                       key={conversation.id}
                       className={`zesty-conversation-card ${
-                        zestyConversationId === conversation.id ? "is-active" : ""
+                        zestyConversationId === conversation.id
+                          ? "is-active"
+                          : ""
                       }`}
-                      onClick={() => void openZestyConversation(conversation.id)}
+                      onClick={() =>
+                        void openZestyConversation(conversation.id)
+                      }
                     >
                       <span className="zesty-conversation-icon">
                         <Sparkles size={15} />
@@ -1657,7 +1703,10 @@ export default function Home() {
                       "Be curious, be kind, and make space for every voice."}
                   </p>
                 </div>
-                <button className="leave-button" onClick={() => void leaveRoom()}>
+                <button
+                  className="leave-button"
+                  onClick={() => void leaveRoom()}
+                >
                   Leave room
                 </button>
               </header>
@@ -1709,7 +1758,9 @@ export default function Home() {
                           )}
                           <div className="message-content">
                             <div className="message-byline">
-                              <strong>{mine ? "You" : message.sender.username}</strong>
+                              <strong>
+                                {mine ? "You" : message.sender.username}
+                              </strong>
                               <time>{formatTime(message.createdAt)}</time>
                               {!mine && (
                                 <button
@@ -1867,7 +1918,9 @@ export default function Home() {
                       <Loader2 className="animate-spin" size={18} />
                     ) : (
                       <>
-                        {authMode === "login" ? "Enter ZestChat" : "Create my account"}
+                        {authMode === "login"
+                          ? "Enter ZestChat"
+                          : "Create my account"}
                         <Send size={17} />
                       </>
                     )}

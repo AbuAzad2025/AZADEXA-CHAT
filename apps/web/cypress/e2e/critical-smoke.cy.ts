@@ -131,4 +131,29 @@ describe("critical signed-in journey", () => {
     cy.contains("h2", "@bobby").should("be.visible");
     cy.get('textarea[aria-label="Message bobby"]').should("be.visible");
   });
+
+  it("prioritizes sign-in and stays within the mobile viewport", () => {
+    cy.viewport(390, 844);
+    cy.visit("/");
+    cy.wait("@rooms");
+
+    cy.get(".auth-card").should("be.visible");
+    cy.get(".welcome-panel").then(($welcome) => {
+      cy.get(".room-rail").then(($rail) => {
+        expect($welcome[0].getBoundingClientRect().top).to.be.lessThan(
+          $rail[0].getBoundingClientRect().top,
+        );
+      });
+    });
+
+    cy.get(".workspace-switch button").each(($button) => {
+      expect($button[0].getBoundingClientRect().height).to.be.at.least(44);
+    });
+
+    cy.document().then((document) => {
+      expect(document.documentElement.scrollWidth).to.be.at.most(
+        document.documentElement.clientWidth + 1,
+      );
+    });
+  });
 });
