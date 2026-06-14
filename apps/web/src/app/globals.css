@@ -906,6 +906,522 @@ button {
   font-weight: 800;
 }
 
+.workspace-switch {
+  display: grid;
+  margin-bottom: 18px;
+  padding: 4px;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  border: 1px solid rgba(16, 35, 49, 0.1);
+  border-radius: 14px 11px 16px 10px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.workspace-switch button {
+  display: flex;
+  min-height: 35px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px 8px 11px 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 850;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.workspace-switch button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  color: var(--purple-deep);
+}
+
+.workspace-switch button.is-active {
+  background: var(--ink);
+  color: white;
+  box-shadow: 0 6px 14px rgba(16, 35, 49, 0.14);
+}
+
+.workspace-switch button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.zesty-rail-heading {
+  margin-top: 2px;
+}
+
+.zesty-status-card {
+  display: flex;
+  margin-top: 17px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(0, 168, 165, 0.2);
+  border-radius: 16px 12px 18px 10px;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.75), transparent 50%),
+    #e9faf5;
+  color: #17665e;
+}
+
+.zesty-status-card.is-offline {
+  border-color: rgba(237, 102, 95, 0.22);
+  background: #fff2eb;
+  color: #9c443f;
+}
+
+.zesty-status-card > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50% 45% 53% 47%;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.zesty-status-card strong,
+.zesty-status-card small {
+  display: block;
+}
+
+.zesty-status-card strong {
+  font-size: 11px;
+}
+
+.zesty-status-card small {
+  margin-top: 2px;
+  opacity: 0.76;
+  font-size: 9px;
+}
+
+.zesty-conversation-list {
+  min-height: 0;
+  margin-top: 18px;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 35, 49, 0.22) transparent;
+}
+
+.zesty-list-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.zesty-list-label button {
+  display: grid;
+  cursor: pointer;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.rail-state.compact {
+  min-height: 150px;
+}
+
+.zesty-conversation-card {
+  position: relative;
+  display: grid;
+  width: 100%;
+  margin-bottom: 7px;
+  padding: 10px 30px 10px 10px;
+  cursor: pointer;
+  text-align: left;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 14px 11px 16px 9px;
+  background: rgba(255, 253, 246, 0.62);
+  transition: background 160ms ease, border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.zesty-conversation-card:hover {
+  transform: translateX(2px);
+  border-color: rgba(236, 166, 51, 0.27);
+  background: #fffaf0;
+}
+
+.zesty-conversation-card.is-active {
+  border-color: rgba(236, 166, 51, 0.42);
+  background: linear-gradient(135deg, #fff2c9, #fffdf6);
+  box-shadow: inset 3px 0 0 #e6a52c;
+}
+
+.zesty-conversation-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 10px 8px 11px 7px;
+  background: #fff0bd;
+  color: #9a660a;
+}
+
+.zesty-conversation-card > span:nth-child(2) {
+  min-width: 0;
+}
+
+.zesty-conversation-card strong,
+.zesty-conversation-card small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.zesty-conversation-card strong {
+  font-size: 11px;
+}
+
+.zesty-conversation-card small {
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 8px;
+}
+
+.zesty-card-shield {
+  position: absolute;
+  top: 12px;
+  right: 9px;
+  color: #b77518;
+}
+
+.zesty-panel {
+  display: grid;
+  min-height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background:
+    radial-gradient(circle at 84% 8%, rgba(255, 205, 93, 0.2), transparent 24rem),
+    radial-gradient(circle at 12% 70%, rgba(0, 168, 165, 0.07), transparent 28rem),
+    var(--cream);
+}
+
+.zesty-header {
+  background: rgba(255, 253, 246, 0.58);
+}
+
+.delete-conversation-button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  cursor: pointer;
+  border: 1px solid rgba(237, 102, 95, 0.22);
+  border-radius: 999px;
+  background: #fff4f0;
+  color: #a53f39;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.delete-conversation-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.zesty-message-stage {
+  height: calc(100vh - 374px);
+  min-height: 410px;
+  padding: 22px clamp(18px, 4vw, 48px);
+  overflow-y: auto;
+}
+
+.zesty-unavailable-card,
+.zesty-welcome {
+  display: grid;
+  width: min(650px, 100%);
+  min-height: 100%;
+  margin: auto;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.zesty-unavailable-card {
+  min-height: 360px;
+  padding: 30px;
+}
+
+.zesty-unavailable-card h3,
+.zesty-welcome h3 {
+  max-width: 590px;
+  margin: 8px 0 10px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.zesty-unavailable-card > p:last-child,
+.zesty-welcome > p {
+  max-width: 590px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.zesty-unavailable-card code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(16, 35, 49, 0.07);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.zesty-seal,
+.zesty-orb {
+  display: grid;
+  place-items: center;
+  color: #8a5a06;
+}
+
+.zesty-seal {
+  width: 66px;
+  height: 66px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(178, 119, 24, 0.2);
+  border-radius: 48% 52% 45% 55%;
+  background: #fff0bd;
+  transform: rotate(-4deg);
+}
+
+.zesty-orb {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 20px;
+  border: 2px solid rgba(16, 35, 49, 0.76);
+  border-radius: 45% 55% 52% 48% / 56% 45% 55% 44%;
+  background:
+    radial-gradient(circle at 35% 28%, #fff9d9, transparent 22%),
+    linear-gradient(145deg, #ffd86d, #f0a43a);
+  box-shadow: 7px 9px 0 rgba(102, 84, 232, 0.12);
+  transform: rotate(-3deg);
+}
+
+.zesty-orb svg {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+}
+
+.zesty-orb span {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 42px;
+  font-weight: 900;
+}
+
+.zesty-prompts {
+  display: grid;
+  width: 100%;
+  margin-top: 24px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.zesty-prompts button {
+  display: flex;
+  min-height: 68px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 13px;
+  cursor: pointer;
+  text-align: left;
+  border: 1px solid rgba(16, 35, 49, 0.11);
+  border-radius: 16px 12px 18px 10px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.4;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.zesty-prompts button:hover {
+  transform: translateY(-2px) rotate(-0.25deg);
+  border-color: rgba(236, 166, 51, 0.5);
+}
+
+.zesty-prompts svg {
+  flex: 0 0 auto;
+  color: #b77518;
+}
+
+.zesty-message-list {
+  display: grid;
+  gap: 16px;
+}
+
+.zesty-message-row {
+  display: flex;
+  max-width: min(760px, 88%);
+  align-items: flex-end;
+  gap: 9px;
+  animation: message-in 220ms ease both;
+}
+
+.zesty-message-row.is-user {
+  margin-left: auto;
+}
+
+.zesty-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(178, 119, 24, 0.22);
+  border-radius: 48% 52% 45% 55%;
+  background: #fff0bd;
+  color: #9a660a;
+}
+
+.zesty-message-content {
+  padding: 11px 14px;
+  border: 1px solid rgba(178, 119, 24, 0.18);
+  border-radius: 18px 18px 18px 5px;
+  background: #fffaf0;
+  box-shadow: 0 8px 21px rgba(72, 50, 12, 0.06);
+}
+
+.zesty-message-row.is-user .zesty-message-content {
+  border-color: rgba(102, 84, 232, 0.22);
+  border-radius: 18px 18px 5px 18px;
+  background: linear-gradient(135deg, #7665ef, #5c49d7);
+  color: white;
+}
+
+.zesty-message-row.is-user .message-byline time {
+  color: rgba(255, 255, 255, 0.67);
+}
+
+.zesty-message-row.is-blocked .zesty-message-content {
+  border-style: dashed;
+  border-color: rgba(237, 102, 95, 0.32);
+  background: #fff1ed;
+  color: #8e3b37;
+}
+
+.zesty-message-content p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.safety-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(237, 102, 95, 0.1);
+  color: #a4433e;
+  font-size: 8px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.zesty-composer {
+  padding: 11px 20px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 253, 246, 0.94);
+}
+
+.zesty-safety-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 7px 4px;
+  color: #4d756d;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.zesty-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.zesty-composer-row > div {
+  position: relative;
+  flex: 1;
+}
+
+.zesty-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 58px;
+  max-height: 150px;
+  resize: vertical;
+  padding: 13px 62px 12px 15px;
+  outline: 0;
+  border: 1px solid rgba(178, 119, 24, 0.23);
+  border-radius: 18px 14px 20px 12px;
+  background: white;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.zesty-composer textarea:focus {
+  border-color: rgba(178, 119, 24, 0.58);
+  box-shadow: 0 0 0 3px rgba(255, 216, 109, 0.22);
+}
+
+.zesty-composer textarea:disabled {
+  cursor: not-allowed;
+  background: #f4f0e8;
+  color: #87949a;
+}
+
+.zesty-composer-row > div > span {
+  position: absolute;
+  right: 13px;
+  bottom: 8px;
+  color: #91a0a7;
+  font-size: 9px;
+}
+
+.zesty-composer-row > button {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  place-items: center;
+  border: 0;
+  border-radius: 16px 12px 18px 10px;
+  background: linear-gradient(145deg, #f4b73d, #d98b21);
+  color: #2f2105;
+  box-shadow: 0 8px 18px rgba(178, 119, 24, 0.2);
+}
+
+.zesty-composer-row > button:disabled {
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: grayscale(0.7);
+  opacity: 0.46;
+}
+
 @keyframes room-in {
   from {
     opacity: 0;
@@ -1016,6 +1532,24 @@ button {
     padding-inline: 14px;
   }
 
+  .zesty-message-stage {
+    height: 470px;
+    min-height: 470px;
+    padding-inline: 16px;
+  }
+
+  .zesty-prompts {
+    grid-template-columns: 1fr;
+  }
+
+  .zesty-prompts button {
+    min-height: auto;
+  }
+
+  .zesty-message-row {
+    max-width: 94%;
+  }
+
   .message-row {
     max-width: 94%;
   }
@@ -1048,6 +1582,23 @@ button {
 
   .auth-card {
     padding: 19px;
+  }
+
+  .zesty-header {
+    gap: 12px;
+  }
+
+  .delete-conversation-button {
+    padding: 8px;
+    font-size: 0;
+  }
+
+  .zesty-message-stage {
+    padding: 18px 12px;
+  }
+
+  .zesty-composer {
+    padding-inline: 12px;
   }
 
   .page-footer {

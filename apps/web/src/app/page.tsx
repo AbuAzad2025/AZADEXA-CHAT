@@ -10,17 +10,22 @@ import {
 } from "react";
 import {
   ArrowDown,
+  Bot,
   CheckCircle2,
+  Clock3,
   Globe2,
   Hash,
   Languages,
   Loader2,
   LogOut,
   MessageCircle,
+  Plus,
   RefreshCw,
   Search,
   Send,
+  ShieldCheck,
   Sparkles,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -81,6 +86,41 @@ interface SocketAck<T> {
   error?: string;
 }
 
+interface ZestyMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  blocked?: boolean;
+}
+
+interface ZestyConversationSummary {
+  id: string;
+  flaggedContent: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  preview: string | null;
+}
+
+interface ZestyConversation {
+  id: string;
+  flaggedContent: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: ZestyMessage[];
+}
+
+interface ZestyStatus {
+  configured: boolean;
+  dailyMessageLimit: number;
+}
+
+interface ZestyChatResult {
+  conversation: ZestyConversation;
+  reply: ZestyMessage;
+  remainingMessages: number;
+}
+
 const STORAGE_KEY = "zestchat.session";
 
 const formatTime = (value: string) =>
@@ -91,9 +131,25 @@ const formatTime = (value: string) =>
 
 const initials = (name: string) => name.slice(0, 2).toUpperCase();
 
+const getBlockedConversationData = (
+  value: unknown
+): { conversationId: string; remainingMessages?: number } | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const data = value as Record<string, unknown>;
+  if (typeof data.conversationId !== "string") return null;
+
+  return {
+    conversationId: data.conversationId,
+    ...(typeof data.remainingMessages === "number" && {
+      remainingMessages: data.remainingMessages,
+    }),
+  };
+};
+
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<"rooms" | "zesty">("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -112,11 +168,26 @@ export default function Home() {
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [zestyConfigured, setZestyConfigured] = useState<boolean | null>(null);
+  const [zestyDailyLimit, setZestyDailyLimit] = useState(20);
+  const [zestyRemaining, setZestyRemaining] = useState<number | null>(null);
+  const [zestyConversations, setZestyConversations] = useState<
+    ZestyConversationSummary[]
+  >([]);
+  const [zestyConversationId, setZestyConversationId] = useState<string | null>(
+    null
+  );
+  const [zestyMessages, setZestyMessages] = useState<ZestyMessage[]>([]);
+  const [zestyDraft, setZestyDraft] = useState("");
+  const [zestyLoading, setZestyLoading] = useState(false);
+  const [zestySending, setZestySending] = useState(false);
+  const [zestyDeleting, setZestyDeleting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const selectedRoomRef = useRef<Room | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const zestyEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -140,6 +211,12 @@ export default function Home() {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
     } else {
       setSocketConnected(false);
+      setWorkspaceMode("rooms");
+      setZestyConfigured(null);
+      setZestyConversations([]);
+      setZestyConversationId(null);
+      setZestyMessages([]);
+      setZestyRemaining(null);
       window.localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
@@ -160,7 +237,10 @@ export default function Home() {
   }, [persistSession, session]);
 
   const authenticatedRequest = useCallback(
-    async <T,>(path: string, options: { method?: "GET" | "POST"; body?: unknown } = {}) => {
+    async <T,>(
+      path: string,
+      options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}
+    ) => {
       if (!session) throw new ApiError("Sign in to continue", 401);
 
       try {
@@ -264,6 +344,160 @@ export default function Home() {
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  useEffect(() => {
+    zestyEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [zestyMessages.length]);
+
+  const refreshZestyConversations = useCallback(async () => {
+    const data = await authenticatedRequest<{
+      conversations: ZestyConversationSummary[];
+    }>("/api/v1/ai/conversations");
+    setZestyConversations(data.conversations);
+    return data.conversations;
+  }, [authenticatedRequest]);
+
+  const openZestyConversation = useCallback(
+    async (conversationId: string) => {
+      setZestyLoading(true);
+      setError(null);
+      try {
+        const data = await authenticatedRequest<{
+          conversation: ZestyConversation;
+        }>(`/api/v1/ai/conversations/${conversationId}`);
+        setZestyConversationId(data.conversation.id);
+        setZestyMessages(data.conversation.messages);
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to open this Zesty conversation"
+        );
+      } finally {
+        setZestyLoading(false);
+      }
+    },
+    [authenticatedRequest]
+  );
+
+  const loadZestyWorkspace = useCallback(async () => {
+    if (!session) return;
+    setZestyLoading(true);
+    setError(null);
+
+    try {
+      const [status, conversations] = await Promise.all([
+        authenticatedRequest<ZestyStatus>("/api/v1/ai/status"),
+        refreshZestyConversations(),
+      ]);
+      setZestyConfigured(status.configured);
+      setZestyDailyLimit(status.dailyMessageLimit);
+
+      if (
+        zestyConversationId &&
+        conversations.some(({ id }) => id === zestyConversationId)
+      ) {
+        const data = await authenticatedRequest<{
+          conversation: ZestyConversation;
+        }>(`/api/v1/ai/conversations/${zestyConversationId}`);
+        setZestyMessages(data.conversation.messages);
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to open Zesty"
+      );
+    } finally {
+      setZestyLoading(false);
+    }
+  }, [
+    authenticatedRequest,
+    refreshZestyConversations,
+    session,
+    zestyConversationId,
+  ]);
+
+  useEffect(() => {
+    if (!session || workspaceMode !== "zesty") return;
+    const timer = window.setTimeout(() => void loadZestyWorkspace(), 0);
+    return () => window.clearTimeout(timer);
+  }, [session?.accessToken, workspaceMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startNewZestyConversation = () => {
+    setZestyConversationId(null);
+    setZestyMessages([]);
+    setZestyDraft("");
+    setError(null);
+  };
+
+  const sendZestyMessage = async (event: FormEvent) => {
+    event.preventDefault();
+    const message = zestyDraft.trim();
+    if (!message || zestySending || !zestyConfigured) return;
+
+    setZestySending(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<ZestyChatResult>(
+        "/api/v1/ai/chat",
+        {
+          method: "POST",
+          body: {
+            message,
+            ...(zestyConversationId && {
+              conversationId: zestyConversationId,
+            }),
+          },
+        }
+      );
+      setZestyConversationId(data.conversation.id);
+      setZestyMessages(data.conversation.messages);
+      setZestyRemaining(data.remainingMessages);
+      setZestyDraft("");
+      await refreshZestyConversations();
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 400) {
+        const blockedData = getBlockedConversationData(requestError.data);
+        if (blockedData) {
+          setZestyConversationId(blockedData.conversationId);
+          setZestyRemaining(blockedData.remainingMessages ?? null);
+          await openZestyConversation(blockedData.conversationId);
+          await refreshZestyConversations();
+        }
+      }
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Zesty could not answer right now"
+      );
+    } finally {
+      setZestySending(false);
+    }
+  };
+
+  const deleteZestyConversation = async () => {
+    if (!zestyConversationId || zestyDeleting) return;
+    setZestyDeleting(true);
+    setError(null);
+    try {
+      await authenticatedRequest<{ deleted: boolean }>(
+        `/api/v1/ai/conversations/${zestyConversationId}`,
+        { method: "DELETE" }
+      );
+      startNewZestyConversation();
+      await refreshZestyConversations();
+      setNotice("Zesty conversation deleted.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to delete this conversation"
+      );
+    } finally {
+      setZestyDeleting(false);
+    }
+  };
 
   const loadHistory = useCallback(
     async (roomId: string) => {
@@ -535,102 +769,387 @@ export default function Home() {
 
       <section className="chat-shell">
         <aside className="room-rail">
-          <div className="rail-heading">
-            <div>
-              <p className="eyebrow">Find your corner</p>
-              <h2>Public rooms</h2>
-            </div>
+          <nav className="workspace-switch" aria-label="Workspace">
             <button
-              className="icon-button soft"
-              onClick={() => void loadRooms()}
-              aria-label="Refresh rooms"
+              className={workspaceMode === "rooms" ? "is-active" : ""}
+              onClick={() => setWorkspaceMode("rooms")}
             >
-              <RefreshCw size={17} className={roomsLoading ? "animate-spin" : ""} />
+              <Globe2 size={15} />
+              Rooms
             </button>
-          </div>
-
-          <form
-            className="filter-stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void loadRooms();
-            }}
-          >
-            <label>
-              <Languages size={16} />
-              <input
-                list="room-languages"
-                value={language}
-                onChange={(event) => setLanguage(event.target.value)}
-                placeholder="Language, e.g. en"
-              />
-              <datalist id="room-languages">
-                {roomLanguages.map((value) => (
-                  <option key={value} value={value} />
-                ))}
-              </datalist>
-            </label>
-            <label>
-              <Search size={16} />
-              <input
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                placeholder="Category"
-              />
-            </label>
-            <button className="filter-button" type="submit">
-              Explore
+            <button
+              className={workspaceMode === "zesty" ? "is-active" : ""}
+              onClick={() => session && setWorkspaceMode("zesty")}
+              disabled={!session}
+              title={session ? "Open Zesty" : "Sign in to ask Zesty"}
+            >
+              <Sparkles size={15} />
+              Zesty
             </button>
-          </form>
+          </nav>
 
-          <div className="room-list">
-            {roomsLoading ? (
-              <div className="rail-state">
-                <Loader2 className="animate-spin" />
-                <span>Gathering rooms...</span>
-              </div>
-            ) : rooms.length === 0 ? (
-              <div className="rail-state">
-                <Globe2 />
-                <strong>No public rooms yet</strong>
-                <span>Try clearing the filters.</span>
-              </div>
-            ) : (
-              rooms.map((room, index) => (
+          {workspaceMode === "rooms" ? (
+            <>
+              <div className="rail-heading">
+                <div>
+                  <p className="eyebrow">Find your corner</p>
+                  <h2>Public rooms</h2>
+                </div>
                 <button
-                  key={room.id}
-                  className={`room-card ${
-                    selectedRoom?.id === room.id ? "is-active" : ""
-                  }`}
-                  onClick={() => void joinRoom(room)}
-                  style={{ "--room-index": index } as React.CSSProperties}
+                  className="icon-button soft"
+                  onClick={() => void loadRooms()}
+                  aria-label="Refresh rooms"
                 >
-                  <div className="room-card-topline">
-                    <span className="room-symbol">
-                      <Hash size={17} />
-                    </span>
-                    <span className="room-language">{room.language}</span>
-                  </div>
-                  <strong>{room.name}</strong>
-                  <p>{room.description || "A public place to meet and talk."}</p>
-                  <div className="room-meta">
-                    <span>
-                      <Users size={14} />
-                      {room.memberCount}/{room.maxUsers}
-                    </span>
-                    <span>{room.category || "General"}</span>
-                  </div>
-                  {joiningRoomId === room.id && (
-                    <Loader2 className="room-loader animate-spin" size={18} />
-                  )}
+                  <RefreshCw
+                    size={17}
+                    className={roomsLoading ? "animate-spin" : ""}
+                  />
                 </button>
-              ))
-            )}
-          </div>
+              </div>
+
+              <form
+                className="filter-stack"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void loadRooms();
+                }}
+              >
+                <label>
+                  <Languages size={16} />
+                  <input
+                    list="room-languages"
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value)}
+                    placeholder="Language, e.g. en"
+                  />
+                  <datalist id="room-languages">
+                    {roomLanguages.map((value) => (
+                      <option key={value} value={value} />
+                    ))}
+                  </datalist>
+                </label>
+                <label>
+                  <Search size={16} />
+                  <input
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                    placeholder="Category"
+                  />
+                </label>
+                <button className="filter-button" type="submit">
+                  Explore
+                </button>
+              </form>
+
+              <div className="room-list">
+                {roomsLoading ? (
+                  <div className="rail-state">
+                    <Loader2 className="animate-spin" />
+                    <span>Gathering rooms...</span>
+                  </div>
+                ) : rooms.length === 0 ? (
+                  <div className="rail-state">
+                    <Globe2 />
+                    <strong>No public rooms yet</strong>
+                    <span>Try clearing the filters.</span>
+                  </div>
+                ) : (
+                  rooms.map((room, index) => (
+                    <button
+                      key={room.id}
+                      className={`room-card ${
+                        selectedRoom?.id === room.id ? "is-active" : ""
+                      }`}
+                      onClick={() => void joinRoom(room)}
+                      style={{ "--room-index": index } as React.CSSProperties}
+                    >
+                      <div className="room-card-topline">
+                        <span className="room-symbol">
+                          <Hash size={17} />
+                        </span>
+                        <span className="room-language">{room.language}</span>
+                      </div>
+                      <strong>{room.name}</strong>
+                      <p>{room.description || "A public place to meet and talk."}</p>
+                      <div className="room-meta">
+                        <span>
+                          <Users size={14} />
+                          {room.memberCount}/{room.maxUsers}
+                        </span>
+                        <span>{room.category || "General"}</span>
+                      </div>
+                      {joiningRoomId === room.id && (
+                        <Loader2 className="room-loader animate-spin" size={18} />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rail-heading zesty-rail-heading">
+                <div>
+                  <p className="eyebrow">Private to your account</p>
+                  <h2>Zesty notes</h2>
+                </div>
+                <button
+                  className="icon-button soft"
+                  onClick={startNewZestyConversation}
+                  aria-label="Start a new Zesty conversation"
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+
+              <div
+                className={`zesty-status-card ${
+                  zestyConfigured === false ? "is-offline" : ""
+                }`}
+              >
+                <span>
+                  {zestyConfigured === null ? (
+                    <Loader2 className="animate-spin" size={15} />
+                  ) : zestyConfigured ? (
+                    <ShieldCheck size={16} />
+                  ) : (
+                    <Clock3 size={16} />
+                  )}
+                </span>
+                <div>
+                  <strong>
+                    {zestyConfigured === false
+                      ? "Waiting for setup"
+                      : "Safety Shield active"}
+                  </strong>
+                  <small>
+                    {zestyRemaining === null
+                      ? `${zestyDailyLimit} messages each day`
+                      : `${zestyRemaining} messages left today`}
+                  </small>
+                </div>
+              </div>
+
+              <div className="zesty-conversation-list">
+                <div className="zesty-list-label">
+                  <span>Recent conversations</span>
+                  <button
+                    onClick={() => void loadZestyWorkspace()}
+                    aria-label="Refresh Zesty conversations"
+                  >
+                    <RefreshCw
+                      size={14}
+                      className={zestyLoading ? "animate-spin" : ""}
+                    />
+                  </button>
+                </div>
+                {zestyLoading && zestyConversations.length === 0 ? (
+                  <div className="rail-state compact">
+                    <Loader2 className="animate-spin" />
+                    <span>Opening your notes...</span>
+                  </div>
+                ) : zestyConversations.length === 0 ? (
+                  <div className="rail-state compact">
+                    <Bot />
+                    <strong>No conversations yet</strong>
+                    <span>Start with one honest question.</span>
+                  </div>
+                ) : (
+                  zestyConversations.map((conversation) => (
+                    <button
+                      key={conversation.id}
+                      className={`zesty-conversation-card ${
+                        zestyConversationId === conversation.id ? "is-active" : ""
+                      }`}
+                      onClick={() => void openZestyConversation(conversation.id)}
+                    >
+                      <span className="zesty-conversation-icon">
+                        <Sparkles size={15} />
+                      </span>
+                      <span>
+                        <strong>
+                          {conversation.preview || "A new conversation"}
+                        </strong>
+                        <small>
+                          {conversation.messageCount} notes ·{" "}
+                          {formatTime(conversation.updatedAt)}
+                        </small>
+                      </span>
+                      {conversation.flaggedContent && (
+                        <ShieldCheck
+                          className="zesty-card-shield"
+                          size={14}
+                          aria-label="Safety filter was used"
+                        />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </aside>
 
         <section className="conversation-panel">
-          {selectedRoom && session ? (
+          {workspaceMode === "zesty" && session ? (
+            <div className="zesty-panel">
+              <header className="conversation-header zesty-header">
+                <div>
+                  <p className="eyebrow">
+                    <ShieldCheck size={14} /> Safety Shield · Layer 1
+                  </p>
+                  <h2>Zesty</h2>
+                  <p>
+                    A calm place to think out loud, get unstuck, or turn a big
+                    question into one small next step.
+                  </p>
+                </div>
+                {zestyConversationId && (
+                  <button
+                    className="delete-conversation-button"
+                    onClick={() => void deleteZestyConversation()}
+                    disabled={zestyDeleting}
+                  >
+                    {zestyDeleting ? (
+                      <Loader2 className="animate-spin" size={15} />
+                    ) : (
+                      <Trash2 size={15} />
+                    )}
+                    Delete
+                  </button>
+                )}
+              </header>
+
+              <div className="zesty-message-stage" aria-live="polite">
+                {zestyLoading && zestyMessages.length === 0 ? (
+                  <div className="conversation-state">
+                    <Loader2 className="animate-spin" />
+                    <span>Warming up Zesty...</span>
+                  </div>
+                ) : zestyConfigured === false ? (
+                  <div className="zesty-unavailable-card">
+                    <span className="zesty-seal">
+                      <Clock3 />
+                    </span>
+                    <p className="eyebrow">Almost ready</p>
+                    <h3>Zesty is waiting for a server key.</h3>
+                    <p>
+                      Add <code>OPENAI_API_KEY</code> to the API environment.
+                      The key stays on the server and is never sent to this
+                      browser.
+                    </p>
+                  </div>
+                ) : zestyMessages.length === 0 ? (
+                  <div className="zesty-welcome">
+                    <div className="zesty-orb" aria-hidden="true">
+                      <Sparkles />
+                      <span>Z</span>
+                    </div>
+                    <p className="eyebrow">A private thinking corner</p>
+                    <h3>Hey {session.user.username}, what is on your mind?</h3>
+                    <p>
+                      Zesty is friendly and useful, but not a doctor or an
+                      emergency service. Avoid sharing sensitive personal
+                      information.
+                    </p>
+                    <div className="zesty-prompts">
+                      {[
+                        "Help me break down a study goal",
+                        "Give me a kind icebreaker",
+                        "Explain something complicated simply",
+                      ].map((prompt) => (
+                        <button
+                          key={prompt}
+                          onClick={() => setZestyDraft(prompt)}
+                        >
+                          <Sparkles size={14} />
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="zesty-message-list">
+                    {zestyMessages.map((message, index) => (
+                      <article
+                        className={`zesty-message-row is-${message.role} ${
+                          message.blocked ? "is-blocked" : ""
+                        }`}
+                        key={`${message.createdAt}-${index}`}
+                      >
+                        {message.role === "assistant" && (
+                          <div className="zesty-avatar">
+                            <Sparkles size={15} />
+                          </div>
+                        )}
+                        <div className="zesty-message-content">
+                          <div className="message-byline">
+                            <strong>
+                              {message.role === "assistant" ? "Zesty" : "You"}
+                            </strong>
+                            {message.blocked && (
+                              <span className="safety-label">
+                                <ShieldCheck size={12} /> Filtered
+                              </span>
+                            )}
+                            <time>{formatTime(message.createdAt)}</time>
+                          </div>
+                          <p>{message.content}</p>
+                        </div>
+                      </article>
+                    ))}
+                    <div ref={zestyEndRef} />
+                  </div>
+                )}
+              </div>
+
+              <form className="zesty-composer" onSubmit={sendZestyMessage}>
+                <div className="zesty-safety-note">
+                  <ShieldCheck size={14} />
+                  Input and output are checked before display.
+                </div>
+                <div className="zesty-composer-row">
+                  <div>
+                    <textarea
+                      value={zestyDraft}
+                      onChange={(event) => setZestyDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      maxLength={2000}
+                      rows={2}
+                      placeholder={
+                        zestyConfigured === false
+                          ? "Zesty needs server configuration"
+                          : "Ask Zesty something..."
+                      }
+                      aria-label="Message Zesty"
+                      disabled={zestyConfigured !== true}
+                    />
+                    <span>{zestyDraft.length}/2000</span>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={
+                      !zestyDraft.trim() ||
+                      zestySending ||
+                      zestyConfigured !== true
+                    }
+                    aria-label="Send message to Zesty"
+                  >
+                    {zestySending ? (
+                      <Loader2 className="animate-spin" size={19} />
+                    ) : (
+                      <Send size={19} />
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : selectedRoom && session ? (
             <>
               <header className="conversation-header">
                 <div>

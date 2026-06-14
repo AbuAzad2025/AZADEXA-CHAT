@@ -2,17 +2,19 @@ export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 interface RequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   token?: string;
   body?: unknown;
 }
 
 export class ApiError extends Error {
   status: number;
+  data?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, data?: unknown) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -39,7 +41,8 @@ export const apiRequest = async <T>(
   if (!response.ok) {
     throw new ApiError(
       payload?.error || `Request failed with status ${response.status}`,
-      response.status
+      response.status,
+      payload?.data
     );
   }
 
