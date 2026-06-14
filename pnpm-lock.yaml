@@ -156,6 +156,9 @@ importers:
       prisma:
         specifier: ^5.14.0
         version: 5.22.0
+      socket.io-client:
+        specifier: ^4.7.5
+        version: 4.8.3
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -330,6 +333,15 @@ importers:
       '@types/node':
         specifier: ^20.12.0
         version: 20.19.43
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^7.10.0
+        version: 7.18.0(@typescript-eslint/parser@7.18.0(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^7.10.0
+        version: 7.18.0(eslint@8.57.1)(typescript@5.9.3)
+      eslint:
+        specifier: ^8.57.0
+        version: 8.57.1
       typescript:
         specifier: ^5.4.5
         version: 5.9.3
@@ -355,6 +367,15 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.17)
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^7.10.0
+        version: 7.18.0(@typescript-eslint/parser@7.18.0(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1)(typescript@5.9.3)
+      '@typescript-eslint/parser':
+        specifier: ^7.10.0
+        version: 7.18.0(eslint@8.57.1)(typescript@5.9.3)
+      eslint:
+        specifier: ^8.57.0
+        version: 8.57.1
       tailwindcss:
         specifier: ^3.4.3
         version: 3.4.19(tsx@4.22.4)

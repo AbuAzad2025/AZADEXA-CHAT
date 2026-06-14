@@ -1,16 +1,20 @@
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 
-const getJwtSecret = () =>
-  process.env.JWT_SECRET || "change-me-in-production";
+const getJwtSecret = () => process.env.JWT_SECRET || "change-me-in-production";
 const getJwtRefreshSecret = () =>
   process.env.JWT_REFRESH_SECRET || "change-me-refresh";
 
 export const generateToken = (userId: string): string => {
-  return jwt.sign({ userId }, getJwtSecret(), { expiresIn: "15m" });
+  return jwt.sign({ userId, jti: randomUUID() }, getJwtSecret(), {
+    expiresIn: "15m",
+  });
 };
 
 export const generateRefreshToken = (userId: string): string => {
-  return jwt.sign({ userId }, getJwtRefreshSecret(), { expiresIn: "7d" });
+  return jwt.sign({ userId, jti: randomUUID() }, getJwtRefreshSecret(), {
+    expiresIn: "7d",
+  });
 };
 
 export const verifyToken = (token: string): jwt.JwtPayload => {
