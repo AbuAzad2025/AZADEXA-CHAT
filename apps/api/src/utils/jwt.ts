@@ -1,9 +1,29 @@
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 
-const getJwtSecret = () => process.env.JWT_SECRET || "change-me-in-production";
+const developmentAccessSecret = "change-me-in-production";
+const developmentRefreshSecret = "change-me-refresh";
+
+const getSecret = (
+  name: "JWT_SECRET" | "JWT_REFRESH_SECRET",
+  developmentFallback: string,
+): string => {
+  const value = process.env[name]?.trim();
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(`${name} must be configured in production`);
+  }
+  return developmentFallback;
+};
+
+const getJwtSecret = () => getSecret("JWT_SECRET", developmentAccessSecret);
 const getJwtRefreshSecret = () =>
-  process.env.JWT_REFRESH_SECRET || "change-me-refresh";
+  getSecret("JWT_REFRESH_SECRET", developmentRefreshSecret);
+
+export const validateJwtConfiguration = (): void => {
+  getJwtSecret();
+  getJwtRefreshSecret();
+};
 
 export const generateToken = (userId: string): string => {
   return jwt.sign({ userId, jti: randomUUID() }, getJwtSecret(), {
