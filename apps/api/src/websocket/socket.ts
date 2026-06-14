@@ -25,10 +25,15 @@ interface ClientToServerEvents {
     payload: unknown,
     ack?: SocketAck<{ message: SocketMessage }>
   ) => void;
+  "private:send": (
+    payload: unknown,
+    ack?: SocketAck<{ message: SocketPrivateMessage }>
+  ) => void;
 }
 
 interface ServerToClientEvents {
   "message:new": (message: SocketMessage) => void;
+  "private:new": (message: SocketPrivateMessage) => void;
   "operation:error": (error: { event: string; error: string }) => void;
 }
 
@@ -70,6 +75,11 @@ const sendMessageSchema = roomActionSchema.extend({
   content: z.string().trim().min(1).max(4096),
 });
 
+const sendPrivateMessageSchema = z.object({
+  receiverId: z.string().cuid(),
+  content: z.string().trim().min(1).max(4096),
+});
+
 const messageSelect = {
   id: true,
   roomId: true,
@@ -93,8 +103,37 @@ type SocketMessage = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
 }>;
 
+const privateMessageSelect = {
+  id: true,
+  senderId: true,
+  receiverId: true,
+  content: true,
+  type: true,
+  isRead: true,
+  createdAt: true,
+  sender: {
+    select: {
+      id: true,
+      username: true,
+      avatar: true,
+    },
+  },
+  receiver: {
+    select: {
+      id: true,
+      username: true,
+      avatar: true,
+    },
+  },
+} satisfies Prisma.PrivateMessageSelect;
+
+type SocketPrivateMessage = Prisma.PrivateMessageGetPayload<{
+  select: typeof privateMessageSelect;
+}>;
+
 const roomChannel = (roomId: string) => `room:${roomId}`;
 const sessionChannel = (sessionId: string) => `session:${sessionId}`;
+const userChannel = (userId: string) => `user:${userId}`;
 
 export const disconnectSessionSockets = (sessionId: string) => {
   socketServer?.in(sessionChannel(sessionId)).disconnectSockets(true);
@@ -218,6 +257,7 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
 
   io.on("connection", (socket) => {
     void socket.join(sessionChannel(socket.data.sessionId));
+    void socket.join(userChannel(socket.data.user.id));
     const tokenExpiryTimer = setTimeout(
       () => socket.disconnect(true),
       socket.data.tokenExpiresAt - Date.now()
@@ -314,6 +354,41 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
         ack?.({ success: true, data: { message } });
       } catch (error) {
         respondWithError(socket, "message:send", ack, error);
+      }
+    });
+
+    socket.on("private:send", async (payload, ack) => {
+      try {
+        await requireActiveSession(prisma, socket);
+        const { receiverId, content } = parseOrThrow(
+          sendPrivateMessageSchema.safeParse(payload)
+        );
+        if (receiverId === socket.data.user.id) {
+          throw new AppError("You cannot message yourself", 400);
+        }
+
+        const receiver = await prisma.user.findUnique({
+          where: { id: receiverId },
+          select: { id: true },
+        });
+        if (!receiver) throw new AppError("User not found", 404);
+
+        const message = await prisma.privateMessage.create({
+          data: {
+            senderId: socket.data.user.id,
+            receiverId,
+            content,
+            type: "TEXT",
+          },
+          select: privateMessageSelect,
+        });
+
+        io.to(userChannel(socket.data.user.id))
+          .to(userChannel(receiverId))
+          .emit("private:new", message);
+        ack?.({ success: true, data: { message } });
+      } catch (error) {
+        respondWithError(socket, "private:send", ack, error);
       }
     });
 
