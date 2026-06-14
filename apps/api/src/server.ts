@@ -21,6 +21,7 @@ import reportRoutes from "./routes/reports";
 import adminRoutes from "./routes/admin";
 import aiRoutes from "./routes/ai";
 import mediaRoutes from "./routes/media";
+import { createHealthRouter } from "./routes/health";
 
 import { logger } from "./utils/logger";
 import { validateJwtConfiguration } from "./utils/jwt";
@@ -62,9 +63,13 @@ app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/ai", aiRoutes);
 app.use("/api/v1/media", mediaRoutes);
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+app.use(
+  createHealthRouter({
+    checkReadiness: async () => {
+      await prisma.$queryRaw`SELECT 1`;
+    },
+  }),
+);
 
 app.use(errorHandler);
 
