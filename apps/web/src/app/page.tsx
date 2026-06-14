@@ -13,6 +13,7 @@ import {
   Bot,
   CheckCircle2,
   Clock3,
+  Flag,
   Globe2,
   Hash,
   Languages,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -30,6 +32,19 @@ import {
   X,
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import {
+  AdminReport,
+  ModerationFilter,
+  ModerationPanel,
+  ModerationRail,
+  ModerationSummary,
+  ReportStatus,
+} from "@/components/ModerationWorkspace";
+import {
+  ReportDialog,
+  ReportTarget,
+  ReportType,
+} from "@/components/ReportDialog";
 import { API_URL, ApiError, apiRequest } from "@/lib/api";
 
 interface User {
@@ -149,7 +164,9 @@ const getBlockedConversationData = (
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
-  const [workspaceMode, setWorkspaceMode] = useState<"rooms" | "zesty">("rooms");
+  const [workspaceMode, setWorkspaceMode] = useState<
+    "rooms" | "zesty" | "moderation"
+  >("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -182,12 +199,34 @@ export default function Home() {
   const [zestyLoading, setZestyLoading] = useState(false);
   const [zestySending, setZestySending] = useState(false);
   const [zestyDeleting, setZestyDeleting] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [moderationSummary, setModerationSummary] = useState<ModerationSummary>({
+    counts: {
+      PENDING: 0,
+      UNDER_REVIEW: 0,
+      RESOLVED: 0,
+      DISMISSED: 0,
+    },
+    open: 0,
+  });
+  const [moderationReports, setModerationReports] = useState<AdminReport[]>([]);
+  const [selectedModerationReport, setSelectedModerationReport] =
+    useState<AdminReport | null>(null);
+  const [moderationFilter, setModerationFilter] =
+    useState<ModerationFilter>("ALL");
+  const [moderationLoading, setModerationLoading] = useState(false);
+  const [moderationUpdating, setModerationUpdating] = useState(false);
+  const [moderationResolution, setModerationResolution] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const selectedRoomRef = useRef<Room | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const zestyEndRef = useRef<HTMLDivElement | null>(null);
+  const isModerator =
+    session !== null &&
+    ["MODERATOR", "ADMIN", "SUPER_ADMIN"].includes(session.user.role);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -217,6 +256,11 @@ export default function Home() {
       setZestyConversationId(null);
       setZestyMessages([]);
       setZestyRemaining(null);
+      setReportTarget(null);
+      setModerationReports([]);
+      setSelectedModerationReport(null);
+      setModerationFilter("ALL");
+      setModerationResolution("");
       window.localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
@@ -239,7 +283,10 @@ export default function Home() {
   const authenticatedRequest = useCallback(
     async <T,>(
       path: string,
-      options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}
+      options: {
+        method?: "GET" | "POST" | "PATCH" | "DELETE";
+        body?: unknown;
+      } = {}
     ) => {
       if (!session) throw new ApiError("Sign in to continue", 401);
 
@@ -496,6 +543,137 @@ export default function Home() {
       );
     } finally {
       setZestyDeleting(false);
+    }
+  };
+
+  const loadModerationWorkspace = useCallback(async () => {
+    if (!isModerator) return;
+    setModerationLoading(true);
+    setError(null);
+
+    try {
+      const query =
+        moderationFilter === "ALL"
+          ? ""
+          : `?status=${encodeURIComponent(moderationFilter)}`;
+      const [summary, reportPage] = await Promise.all([
+        authenticatedRequest<ModerationSummary>(
+          "/api/v1/admin/reports/summary"
+        ),
+        authenticatedRequest<{
+          reports: AdminReport[];
+          nextCursor: string | null;
+        }>(`/api/v1/admin/reports${query}`),
+      ]);
+      setModerationSummary(summary);
+      setModerationReports(reportPage.reports);
+
+      const nextSelection = reportPage.reports[0] || null;
+      setSelectedModerationReport(nextSelection);
+      setModerationResolution(nextSelection?.resolution || "");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load the moderation queue"
+      );
+    } finally {
+      setModerationLoading(false);
+    }
+  }, [
+    authenticatedRequest,
+    isModerator,
+    moderationFilter,
+  ]);
+
+  useEffect(() => {
+    if (workspaceMode !== "moderation" || !isModerator) return;
+    const timer = window.setTimeout(
+      () => void loadModerationWorkspace(),
+      0
+    );
+    return () => window.clearTimeout(timer);
+  }, [isModerator, loadModerationWorkspace, workspaceMode]);
+
+  const selectModerationReport = (report: AdminReport) => {
+    setSelectedModerationReport(report);
+    setModerationResolution(report.resolution || "");
+  };
+
+  const updateModerationReport = async (
+    status: Exclude<ReportStatus, "PENDING">
+  ) => {
+    if (!selectedModerationReport || moderationUpdating) return;
+    const finalStatus = status === "RESOLVED" || status === "DISMISSED";
+    if (finalStatus && moderationResolution.trim().length < 5) {
+      setError("Add a short resolution before closing this report.");
+      return;
+    }
+
+    setModerationUpdating(true);
+    setError(null);
+    try {
+      await authenticatedRequest<{ report: AdminReport }>(
+        `/api/v1/admin/reports/${selectedModerationReport.id}`,
+        {
+          method: "PATCH",
+          body: {
+            status,
+            ...(finalStatus && {
+              resolution: moderationResolution.trim(),
+            }),
+          },
+        }
+      );
+      setNotice(
+        status === "UNDER_REVIEW"
+          ? "Report marked as under review."
+          : `Report ${status.toLowerCase()}.`
+      );
+      await loadModerationWorkspace();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to update this report"
+      );
+    } finally {
+      setModerationUpdating(false);
+    }
+  };
+
+  const submitReport = async (type: ReportType, reason: string) => {
+    if (!reportTarget || reportSubmitting) return;
+    setReportSubmitting(true);
+    setError(null);
+
+    try {
+      await authenticatedRequest<{ report: { id: string } }>(
+        "/api/v1/reports",
+        {
+          method: "POST",
+          body: {
+            reportedUserId: reportTarget.reportedUserId,
+            type,
+            reason,
+            evidence: [
+              `room:${reportTarget.roomName}`,
+              `message:${reportTarget.messageId}`,
+              `excerpt:${reportTarget.excerpt}`,
+            ].join("\n"),
+          },
+        }
+      );
+      setReportTarget(null);
+      setNotice("Thanks. The safety team will review your report.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to submit this report"
+      );
+    } finally {
+      setReportSubmitting(false);
     }
   };
 
@@ -769,7 +947,10 @@ export default function Home() {
 
       <section className="chat-shell">
         <aside className="room-rail">
-          <nav className="workspace-switch" aria-label="Workspace">
+          <nav
+            className={`workspace-switch ${isModerator ? "has-admin" : ""}`}
+            aria-label="Workspace"
+          >
             <button
               className={workspaceMode === "rooms" ? "is-active" : ""}
               onClick={() => setWorkspaceMode("rooms")}
@@ -786,6 +967,16 @@ export default function Home() {
               <Sparkles size={15} />
               Zesty
             </button>
+            {isModerator && (
+              <button
+                className={workspaceMode === "moderation" ? "is-active" : ""}
+                onClick={() => setWorkspaceMode("moderation")}
+                title="Open the moderation queue"
+              >
+                <ShieldAlert size={15} />
+                Safety
+              </button>
+            )}
           </nav>
 
           {workspaceMode === "rooms" ? (
@@ -886,7 +1077,7 @@ export default function Home() {
                 )}
               </div>
             </>
-          ) : (
+          ) : workspaceMode === "zesty" ? (
             <>
               <div className="rail-heading zesty-rail-heading">
                 <div>
@@ -987,11 +1178,30 @@ export default function Home() {
                 )}
               </div>
             </>
+          ) : (
+            <ModerationRail
+              summary={moderationSummary}
+              reports={moderationReports}
+              selectedId={selectedModerationReport?.id || null}
+              filter={moderationFilter}
+              loading={moderationLoading}
+              onFilterChange={setModerationFilter}
+              onRefresh={() => void loadModerationWorkspace()}
+              onSelect={selectModerationReport}
+            />
           )}
         </aside>
 
         <section className="conversation-panel">
-          {workspaceMode === "zesty" && session ? (
+          {workspaceMode === "moderation" && isModerator ? (
+            <ModerationPanel
+              report={selectedModerationReport}
+              resolution={moderationResolution}
+              updating={moderationUpdating}
+              onResolutionChange={setModerationResolution}
+              onUpdate={(status) => void updateModerationReport(status)}
+            />
+          ) : workspaceMode === "zesty" && session ? (
             <div className="zesty-panel">
               <header className="conversation-header zesty-header">
                 <div>
@@ -1216,6 +1426,25 @@ export default function Home() {
                             <div className="message-byline">
                               <strong>{mine ? "You" : message.sender.username}</strong>
                               <time>{formatTime(message.createdAt)}</time>
+                              {!mine && (
+                                <button
+                                  className="message-report-button"
+                                  onClick={() =>
+                                    setReportTarget({
+                                      reportedUserId: message.sender.id,
+                                      username: message.sender.username,
+                                      roomName: selectedRoom.slug,
+                                      messageId: message.id,
+                                      excerpt: message.content.slice(0, 300),
+                                    })
+                                  }
+                                  title={`Report @${message.sender.username}`}
+                                  aria-label={`Report message from ${message.sender.username}`}
+                                >
+                                  <Flag size={12} />
+                                  Report
+                                </button>
+                              )}
                             </div>
                             <p>{message.content}</p>
                           </div>
@@ -1381,6 +1610,14 @@ export default function Home() {
           )}
         </section>
       </section>
+
+      <ReportDialog
+        key={reportTarget?.messageId || "closed-report-dialog"}
+        target={reportTarget}
+        submitting={reportSubmitting}
+        onClose={() => setReportTarget(null)}
+        onSubmit={submitReport}
+      />
 
       <footer className="page-footer">
         <span>ZestChat MVP</span>
