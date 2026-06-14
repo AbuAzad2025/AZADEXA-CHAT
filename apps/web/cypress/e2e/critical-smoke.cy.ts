@@ -72,6 +72,24 @@ describe("critical signed-in journey", () => {
         data: { report: { id: "cmqd06xfa0000cn13o3jjb030" } },
       },
     }).as("createReport");
+    cy.intercept("GET", `${API_URL}/api/v1/reports/mine`, {
+      success: true,
+      data: {
+        reports: [
+          {
+            id: "cmqd06xfa0000cn13o3jjb030",
+            type: "SCAM",
+            reason: "This message appears to be a financial scam.",
+            evidence: `room:${room.name}\nmessage:cmqd06xfa0000cn13o3jjb020\nexcerpt:Send money to unlock a special prize.`,
+            status: "UNDER_REVIEW",
+            resolution: null,
+            createdAt: "2026-06-14T01:05:00.000Z",
+            resolvedAt: null,
+            reported: bobby,
+          },
+        ],
+      },
+    }).as("myReports");
     cy.intercept("GET", `${API_URL}/api/v1/chat/private/conversations`, {
       success: true,
       data: { conversations: [] },
@@ -120,6 +138,12 @@ describe("critical signed-in journey", () => {
     cy.contains("Thanks. The safety team will review your report.").should(
       "be.visible",
     );
+
+    cy.contains("button", "Safety").click();
+    cy.wait("@myReports");
+    cy.contains("h2", "Safety center").should("be.visible");
+    cy.contains("strong", "@bobby").should("be.visible");
+    cy.contains("A moderator is reviewing this").should("be.visible");
 
     cy.contains("button", "Direct").click();
     cy.wait("@directConversations");

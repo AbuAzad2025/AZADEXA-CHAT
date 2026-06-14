@@ -972,8 +972,12 @@ button {
   background: rgba(255, 255, 255, 0.56);
 }
 
-.workspace-switch.has-admin {
+.workspace-switch.has-safety {
   grid-template-columns: repeat(4, 1fr);
+}
+
+.workspace-switch.has-admin {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .workspace-switch button {
@@ -1734,6 +1738,56 @@ button {
 .safety-summary-card strong,
 .safety-summary-card small {
   display: block;
+}
+
+.personal-safety-summary {
+  border-color: rgba(0, 168, 165, 0.22);
+  background: #eaf9f5;
+  color: #17665e;
+}
+
+.personal-safety-panel {
+  background:
+    radial-gradient(
+      circle at 82% 8%,
+      rgba(0, 168, 165, 0.12),
+      transparent 24rem
+    ),
+    radial-gradient(
+      circle at 12% 75%,
+      rgba(102, 84, 232, 0.06),
+      transparent 26rem
+    ),
+    var(--cream);
+}
+
+.personal-safety-empty > span {
+  background: #e8faf4;
+  color: #157066;
+}
+
+.personal-safety-decision {
+  border-color: rgba(0, 168, 165, 0.18);
+}
+
+.personal-safety-resolution {
+  margin: 0;
+  padding: 13px;
+  border-radius: 12px;
+  background: #eef8f5;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.personal-safety-resolution.is-muted {
+  background: #f5f3eb;
+  color: #7b898f;
+}
+
+.safety-closed-note.is-open {
+  background: #fff6d9;
+  color: #8b6415;
 }
 
 .safety-summary-card strong {

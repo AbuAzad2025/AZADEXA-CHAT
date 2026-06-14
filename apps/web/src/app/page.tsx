@@ -53,6 +53,11 @@ import {
   ReportTarget,
   ReportType,
 } from "@/components/ReportDialog";
+import {
+  SafetyCenterPanel,
+  SafetyCenterRail,
+  UserReport,
+} from "@/components/SafetyCenter";
 import { API_URL, ApiError, apiRequest } from "@/lib/api";
 
 interface User {
@@ -173,7 +178,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<
-    "rooms" | "direct" | "zesty" | "moderation"
+    "rooms" | "direct" | "zesty" | "safety" | "moderation"
   >("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -209,6 +214,10 @@ export default function Home() {
   const [zestyDeleting, setZestyDeleting] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [userReports, setUserReports] = useState<UserReport[]>([]);
+  const [selectedUserReport, setSelectedUserReport] =
+    useState<UserReport | null>(null);
+  const [userReportsLoading, setUserReportsLoading] = useState(false);
   const [moderationSummary, setModerationSummary] = useState<ModerationSummary>(
     {
       counts: {
@@ -748,6 +757,7 @@ export default function Home() {
       );
       setReportTarget(null);
       setNotice("Thanks. The safety team will review your report.");
+      void loadUserReports();
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -758,6 +768,43 @@ export default function Home() {
       setReportSubmitting(false);
     }
   };
+
+  const loadUserReports = useCallback(async () => {
+    if (!session) return;
+    setUserReportsLoading(true);
+    setError(null);
+
+    try {
+      const data = await authenticatedRequest<{ reports: UserReport[] }>(
+        "/api/v1/reports/mine",
+      );
+      setUserReports(data.reports);
+      setSelectedUserReport((current) => {
+        if (current) {
+          return (
+            data.reports.find(({ id }) => id === current.id) ||
+            data.reports[0] ||
+            null
+          );
+        }
+        return data.reports[0] || null;
+      });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load your reports",
+      );
+    } finally {
+      setUserReportsLoading(false);
+    }
+  }, [authenticatedRequest, session]);
+
+  useEffect(() => {
+    if (workspaceMode !== "safety" || !session) return;
+    const timer = window.setTimeout(() => void loadUserReports(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadUserReports, session, workspaceMode]);
 
   const loadDirectConversations = useCallback(async () => {
     if (!session) return;
@@ -1099,8 +1146,11 @@ export default function Home() {
       }).catch(() => undefined);
     }
     persistSession(null);
+    setWorkspaceMode("rooms");
     setSelectedRoom(null);
     setMessages([]);
+    setUserReports([]);
+    setSelectedUserReport(null);
     setError(null);
     setNotice("You are signed out.");
   };
@@ -1212,7 +1262,9 @@ export default function Home() {
       >
         <aside className="room-rail">
           <nav
-            className={`workspace-switch ${isModerator ? "has-admin" : ""}`}
+            className={`workspace-switch ${
+              session ? "has-safety" : ""
+            } ${isModerator ? "has-admin" : ""}`}
             aria-label="Workspace"
           >
             <button
@@ -1256,6 +1308,18 @@ export default function Home() {
               <Sparkles size={15} />
               Zesty
             </button>
+            <button
+              className={workspaceMode === "safety" ? "is-active" : ""}
+              onClick={() => session && setWorkspaceMode("safety")}
+              disabled={!session}
+              title={
+                session ? "Open your safety center" : "Sign in to view reports"
+              }
+              aria-pressed={workspaceMode === "safety"}
+            >
+              <ShieldCheck size={15} />
+              Safety
+            </button>
             {isModerator && (
               <button
                 className={workspaceMode === "moderation" ? "is-active" : ""}
@@ -1264,7 +1328,7 @@ export default function Home() {
                 aria-pressed={workspaceMode === "moderation"}
               >
                 <ShieldAlert size={15} />
-                Safety
+                Moderate
               </button>
             )}
           </nav>
@@ -1493,6 +1557,14 @@ export default function Home() {
                 )}
               </div>
             </>
+          ) : workspaceMode === "safety" ? (
+            <SafetyCenterRail
+              reports={userReports}
+              selectedId={selectedUserReport?.id || null}
+              loading={userReportsLoading}
+              onRefresh={() => void loadUserReports()}
+              onSelect={setSelectedUserReport}
+            />
           ) : (
             <ModerationRail
               summary={moderationSummary}
@@ -1524,6 +1596,8 @@ export default function Home() {
               onLoadOlder={() => void loadOlderDirectMessages()}
               onSend={sendDirectMessage}
             />
+          ) : workspaceMode === "safety" && session ? (
+            <SafetyCenterPanel report={selectedUserReport} />
           ) : workspaceMode === "moderation" && isModerator ? (
             <ModerationPanel
               report={selectedModerationReport}
