@@ -1,9 +1,6 @@
-import path from "path";
-import { randomUUID } from "crypto";
-import { Server } from "http";
 import assert from "node:assert/strict";
+import { Server } from "http";
 import { after, before, describe, it } from "node:test";
-import dotenv from "dotenv";
 import express, { RequestHandler } from "express";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { AuthenticatedRequest } from "../middleware/auth";
@@ -16,7 +13,41 @@ import {
 } from "../services/zesty";
 import { countMessagesSince, createAiRouter, parseStoredMessages } from "./ai";
 
-dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
+interface TestUser {
+  id: string;
+  email: string;
+  username: string;
+  role: string;
+}
+
+interface FakeConversation {
+  id: string;
+  userId: string;
+  messages: Prisma.JsonValue;
+  moodDetected: string | null;
+  flaggedContent: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface TestApiResponse {
+  success: boolean;
+  error?: string;
+  data?: {
+    conversation?: {
+      id: string;
+      messages: ZestyMessage[];
+    };
+    conversations?: {
+      id: string;
+      messageCount: number;
+    }[];
+    conversationId?: string;
+    flagged?: boolean;
+    remainingMessages?: number;
+    reply?: ZestyMessage;
+  };
+}
 
 class FakeZestyProvider implements ZestyProvider {
   isConfigured(): boolean {
@@ -39,29 +70,111 @@ class FakeZestyProvider implements ZestyProvider {
   }
 }
 
-const prisma = new PrismaClient();
-const testId = randomUUID().replaceAll("-", "");
-const owner = {
-  id: "",
-  email: `zesty-owner-${testId}@example.com`,
-  username: `zesty_owner_${testId.slice(0, 10)}`,
+const owner: TestUser = {
+  id: "cmqd06xfa0000cn13o3jjm570",
+  email: "zesty-owner@example.com",
+  username: "zesty_owner",
   role: "USER",
 };
-const otherUser = {
-  id: "",
-  email: `zesty-other-${testId}@example.com`,
-  username: `zesty_other_${testId.slice(0, 10)}`,
+const otherUser: TestUser = {
+  id: "cmqd06xfa0000cn13o3jjm571",
+  email: "zesty-other@example.com",
+  username: "zesty_other",
   role: "USER",
 };
-const quotaUser = {
-  id: "",
-  email: `zesty-quota-${testId}@example.com`,
-  username: `zesty_quota_${testId.slice(0, 10)}`,
+const quotaUser: TestUser = {
+  id: "cmqd06xfa0000cn13o3jjm572",
+  email: "zesty-quota@example.com",
+  username: "zesty_quota",
   role: "USER",
 };
+
+const conversations: FakeConversation[] = [];
+let conversationSequence = 0;
 let activeUser = owner;
-let server: Server;
-let baseUrl = "";
+
+const asJsonValue = (value: Prisma.InputJsonValue): Prisma.JsonValue =>
+  value as Prisma.JsonValue;
+
+const fakePrisma = {
+  aIConversation: {
+    findMany: async ({ where }: { where: { userId: string } }) =>
+      conversations
+        .filter((conversation) => conversation.userId === where.userId)
+        .sort(
+          (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()
+        ),
+    findFirst: async ({
+      where,
+    }: {
+      where: { id: string; userId: string };
+    }) =>
+      conversations.find(
+        (conversation) =>
+          conversation.id === where.id && conversation.userId === where.userId
+      ) || null,
+    findUniqueOrThrow: async ({ where }: { where: { id: string } }) => {
+      const conversation = conversations.find(({ id }) => id === where.id);
+      if (!conversation) throw new Error("Conversation missing");
+      return conversation;
+    },
+    create: async ({
+      data,
+    }: {
+      data: {
+        userId: string;
+        messages: Prisma.InputJsonValue;
+        flaggedContent?: boolean;
+      };
+    }) => {
+      conversationSequence += 1;
+      const now = new Date();
+      const conversation: FakeConversation = {
+        id: `cmqd06xfa0000cn13o3jjm6${conversationSequence
+          .toString()
+          .padStart(2, "0")}`,
+        userId: data.userId,
+        messages: asJsonValue(data.messages),
+        moodDetected: null,
+        flaggedContent: data.flaggedContent || false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      conversations.push(conversation);
+      return conversation;
+    },
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: {
+        messages: Prisma.InputJsonValue;
+        flaggedContent: boolean;
+      };
+    }) => {
+      const conversation = conversations.find(({ id }) => id === where.id);
+      if (!conversation) throw new Error("Conversation missing");
+      conversation.messages = asJsonValue(data.messages);
+      conversation.flaggedContent = data.flaggedContent;
+      conversation.updatedAt = new Date();
+      return conversation;
+    },
+    deleteMany: async ({
+      where,
+    }: {
+      where: { id: string; userId: string };
+    }) => {
+      const index = conversations.findIndex(
+        (conversation) =>
+          conversation.id === where.id && conversation.userId === where.userId
+      );
+      if (index === -1) return { count: 0 };
+      conversations.splice(index, 1);
+      return { count: 1 };
+    },
+  },
+} as unknown as PrismaClient;
 
 const testAuthenticate: RequestHandler = (req, _res, next) => {
   (req as AuthenticatedRequest).user = activeUser;
@@ -73,31 +186,15 @@ app.use(express.json());
 app.use(
   "/api/v1/ai",
   createAiRouter({
-    prisma,
+    prisma: fakePrisma,
     provider: new FakeZestyProvider(),
     authenticateMiddleware: testAuthenticate,
   })
 );
 app.use(errorHandler);
 
-interface TestApiResponse {
-  success: boolean;
-  error?: string;
-  data?: {
-    conversation?: {
-      id: string;
-      messages: ZestyMessage[];
-    };
-    conversations?: {
-      id: string;
-      messageCount: number;
-    }[];
-    conversationId?: string;
-    flagged?: boolean;
-    remainingMessages?: number;
-    reply?: ZestyMessage;
-  };
-}
+let server: Server;
+let baseUrl = "";
 
 const apiRequest = async (
   route: string,
@@ -117,33 +214,6 @@ const apiRequest = async (
 
 describe("Zesty AI routes", () => {
   before(async () => {
-    const createdOwner = await prisma.user.create({
-      data: {
-        email: owner.email,
-        username: owner.username,
-        passwordHash: "test-only",
-      },
-    });
-    owner.id = createdOwner.id;
-
-    const createdOtherUser = await prisma.user.create({
-      data: {
-        email: otherUser.email,
-        username: otherUser.username,
-        passwordHash: "test-only",
-      },
-    });
-    otherUser.id = createdOtherUser.id;
-
-    const createdQuotaUser = await prisma.user.create({
-      data: {
-        email: quotaUser.email,
-        username: quotaUser.username,
-        passwordHash: "test-only",
-      },
-    });
-    quotaUser.id = createdQuotaUser.id;
-
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", () => {
         const address = server.address();
@@ -160,12 +230,6 @@ describe("Zesty AI routes", () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
-    await prisma.user.deleteMany({
-      where: {
-        id: { in: [owner.id, otherUser.id, quotaUser.id].filter(Boolean) },
-      },
-    });
-    await prisma.$disconnect();
   });
 
   it("creates, continues, lists, reads, and deletes an owned conversation", async () => {
@@ -224,7 +288,7 @@ describe("Zesty AI routes", () => {
     assert.equal(response.body.data?.flagged, true);
     const conversationId = response.body.data?.conversationId;
     assert.ok(conversationId);
-    const stored = await prisma.aIConversation.findUniqueOrThrow({
+    const stored = await fakePrisma.aIConversation.findUniqueOrThrow({
       where: { id: conversationId },
     });
     const messages = parseStoredMessages(stored.messages);
@@ -255,7 +319,7 @@ describe("Zesty AI routes", () => {
       content: `message-${index}`,
       createdAt,
     }));
-    await prisma.aIConversation.create({
+    await fakePrisma.aIConversation.create({
       data: {
         userId: quotaUser.id,
         messages: messages as unknown as Prisma.InputJsonValue,

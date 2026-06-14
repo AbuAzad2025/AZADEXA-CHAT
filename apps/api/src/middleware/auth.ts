@@ -45,9 +45,10 @@ export const authenticate: RequestHandler = async (req: Request, _res: Response,
   }
 };
 
-export const requireRole = (...roles: string[]) => {
-  return (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+export const requireRole = (...roles: string[]): RequestHandler => {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user || !roles.includes(user.role)) {
       return next(new AppError("Forbidden: insufficient permissions", 403));
     }
     next();
