@@ -15,6 +15,7 @@ interface TestUser {
   id: string;
   email: string;
   username: string;
+  avatar: null;
   role: string;
 }
 
@@ -35,12 +36,14 @@ const alice: TestUser = {
   id: "cmqd06xfa0000cn13o3jja001",
   email: "alice@example.com",
   username: "alice",
+  avatar: null,
   role: "USER",
 };
 const bob: TestUser = {
   id: "cmqd06xfa0000cn13o3jja002",
   email: "bob@example.com",
   username: "bobby",
+  avatar: null,
   role: "USER",
 };
 const roomId = "cmqd06xfa0000cn13o3jja010";

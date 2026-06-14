@@ -86,3 +86,63 @@ jobs:
 
       - name: Build web image
         run: docker build --target runtime --tag zestchat-web:ci --file apps/web/Dockerfile .
+
+  performance:
+    name: WebSocket MVP Load
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zestchat
+          POSTGRES_PASSWORD: zestchat-ci-password
+          POSTGRES_DB: zestchat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zestchat -d zestchat"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://zestchat:zestchat-ci-password@localhost:5432/zestchat?schema=public
+      JWT_SECRET: ci-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      LOAD_TEST_CONFIRM: "yes"
+      LOAD_TEST_USERS: "100"
+      LOAD_TEST_SEND_CONCURRENCY: "5"
+      LOAD_TEST_P95_LIMIT_MS: "200"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.4.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install API dependencies
+        run: pnpm install --filter @zestchat/api... --filter @zestchat/prisma --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @zestchat/api run db:generate
+
+      - name: Apply database migrations
+        run: pnpm --filter @zestchat/prisma run db:migrate:prod
+
+      - name: Build API
+        run: pnpm --filter @zestchat/api... run build
+
+      - name: Run 100-user WebSocket load test
+        run: pnpm --filter @zestchat/api run test:load

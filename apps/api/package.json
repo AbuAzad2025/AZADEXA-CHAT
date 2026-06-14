@@ -13,6 +13,7 @@
     "lint": "eslint src --ext .ts",
     "test": "tsx --test --test-concurrency=4 --test-timeout=60000 src/middleware/auth.test.ts src/middleware/rateLimit.test.ts src/routes/ai.test.ts src/routes/auth.test.ts src/routes/chat.test.ts src/routes/health.test.ts src/routes/privateMessages.test.ts src/routes/reports.test.ts src/utils/jwt.test.ts src/websocket/socket.test.ts",
     "test:watch": "tsx --test --watch --test-concurrency=4 --test-timeout=60000 src/middleware/auth.test.ts src/middleware/rateLimit.test.ts src/routes/ai.test.ts src/routes/auth.test.ts src/routes/chat.test.ts src/routes/health.test.ts src/routes/privateMessages.test.ts src/routes/reports.test.ts src/utils/jwt.test.ts src/websocket/socket.test.ts",
+    "test:load": "node scripts/load-test.mjs",
     "type-check": "tsc --noEmit",
     "db:generate": "prisma generate --schema=../../packages/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=../../packages/prisma/schema.prisma",

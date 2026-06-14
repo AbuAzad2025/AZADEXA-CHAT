@@ -45,6 +45,7 @@ interface SocketData {
     id: string;
     email: string;
     username: string;
+    avatar: string | null;
     role: string;
   };
 }
@@ -82,7 +83,7 @@ const sendPrivateMessageSchema = z.object({
   content: z.string().trim().min(1).max(4096),
 });
 
-const messageSelect = {
+const messageRecordSelect = {
   id: true,
   roomId: true,
   content: true,
@@ -92,18 +93,17 @@ const messageSelect = {
   isDeleted: true,
   createdAt: true,
   updatedAt: true,
-  sender: {
-    select: {
-      id: true,
-      username: true,
-      avatar: true,
-    },
-  },
 } satisfies Prisma.MessageSelect;
 
 type SocketMessage = Prisma.MessageGetPayload<{
-  select: typeof messageSelect;
-}>;
+  select: typeof messageRecordSelect;
+}> & {
+  sender: {
+    id: string;
+    username: string;
+    avatar: string | null;
+  };
+};
 
 const privateMessageSelect = {
   id: true,
@@ -141,19 +141,7 @@ export const disconnectSessionSockets = (sessionId: string) => {
   socketServer?.in(sessionChannel(sessionId)).disconnectSockets(true);
 };
 
-const requireActiveSession = async (
-  prisma: PrismaClient,
-  socket: ChatSocket,
-) => {
-  const session = await prisma.session.findFirst({
-    where: {
-      token: socket.data.token,
-      userId: socket.data.user.id,
-      expiresAt: { gt: new Date() },
-    },
-    select: { id: true },
-  });
-  if (!session) throw new AppError("Session expired", 401);
+const requireUnexpiredToken = (socket: ChatSocket) => {
   if (socket.data.tokenExpiresAt <= Date.now()) {
     throw new AppError("Session expired", 401);
   }
@@ -251,7 +239,13 @@ export const setupWebSocket = (
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { id: true, email: true, username: true, role: true },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          avatar: true,
+          role: true,
+        },
       });
       if (!user) throw new AppError("User not found", 401);
 
@@ -284,7 +278,7 @@ export const setupWebSocket = (
 
     socket.on("room:join", async (payload, ack) => {
       try {
-        await requireActiveSession(prisma, socket);
+        requireUnexpiredToken(socket);
         const { roomId } = parseOrThrow(roomActionSchema.safeParse(payload));
 
         const room = await prisma.room.findUnique({
@@ -311,7 +305,7 @@ export const setupWebSocket = (
 
     socket.on("room:leave", async (payload, ack) => {
       try {
-        await requireActiveSession(prisma, socket);
+        requireUnexpiredToken(socket);
         const { roomId } = parseOrThrow(roomActionSchema.safeParse(payload));
 
         const room = await prisma.room.findUnique({
@@ -329,16 +323,10 @@ export const setupWebSocket = (
 
     socket.on("message:send", async (payload, ack) => {
       try {
-        await requireActiveSession(prisma, socket);
+        requireUnexpiredToken(socket);
         const { roomId, content } = parseOrThrow(
           sendMessageSchema.safeParse(payload),
         );
-
-        const room = await prisma.room.findUnique({
-          where: { id: roomId, type: "PUBLIC" },
-          select: { id: true },
-        });
-        if (!room) throw new AppError("Room not found", 404);
 
         if (!socket.rooms.has(roomChannel(roomId))) {
           throw new AppError(
@@ -360,15 +348,23 @@ export const setupWebSocket = (
         }
 
         consumeQuota(socket.data.user.id);
-        const message = await prisma.message.create({
+        const storedMessage = await prisma.message.create({
           data: {
             roomId,
             senderId: socket.data.user.id,
             content,
             type: "TEXT",
           },
-          select: messageSelect,
+          select: messageRecordSelect,
         });
+        const message: SocketMessage = {
+          ...storedMessage,
+          sender: {
+            id: socket.data.user.id,
+            username: socket.data.user.username,
+            avatar: socket.data.user.avatar,
+          },
+        };
 
         io.to(roomChannel(roomId)).emit("message:new", message);
         ack?.({ success: true, data: { message } });
@@ -379,7 +375,7 @@ export const setupWebSocket = (
 
     socket.on("private:send", async (payload, ack) => {
       try {
-        await requireActiveSession(prisma, socket);
+        requireUnexpiredToken(socket);
         const { receiverId, content } = parseOrThrow(
           sendPrivateMessageSchema.safeParse(payload),
         );
