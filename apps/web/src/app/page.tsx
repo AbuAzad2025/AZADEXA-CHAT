@@ -985,32 +985,53 @@ export default function Home() {
     }
   };
 
-  const sendDirectMessage = (event: FormEvent) => {
+  const sendDirectMessage = async (event: FormEvent) => {
     event.preventDefault();
     const content = directDraft.trim();
-    if (
-      !content ||
-      !selectedDirectUser ||
-      !socketRef.current ||
-      directSending
-    ) {
+    if (!content || !selectedDirectUser || directSending) {
       return;
     }
 
     setDirectSending(true);
     setError(null);
-    socketRef.current.emit(
-      "private:send",
-      { receiverId: selectedDirectUser.id, content },
-      (response: SocketAck<{ message: PrivateMessage }>) => {
-        setDirectSending(false);
-        if (!response.success) {
-          setError(response.error || "Unable to send private message");
-          return;
-        }
-        setDirectDraft("");
-      },
-    );
+    if (socketConnected && socketRef.current?.connected) {
+      socketRef.current.emit(
+        "private:send",
+        { receiverId: selectedDirectUser.id, content },
+        (response: SocketAck<{ message: PrivateMessage }>) => {
+          setDirectSending(false);
+          if (!response.success) {
+            setError(response.error || "Unable to send private message");
+            return;
+          }
+          setDirectDraft("");
+        },
+      );
+      return;
+    }
+
+    try {
+      const data = await authenticatedRequest<{ message: PrivateMessage }>(
+        `/api/v1/chat/private/${selectedDirectUser.id}/messages`,
+        { method: "POST", body: { content } },
+      );
+      setDirectMessages((current) =>
+        current.some(({ id }) => id === data.message.id)
+          ? current
+          : [...current, data.message],
+      );
+      setDirectDraft("");
+      setNotice("Message saved while live delivery reconnects.");
+      void loadDirectConversations();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to send private message",
+      );
+    } finally {
+      setDirectSending(false);
+    }
   };
 
   const loadHistory = useCallback(
@@ -1122,25 +1143,50 @@ export default function Home() {
     }
   };
 
-  const sendMessage = (event: FormEvent) => {
+  const sendMessage = async (event: FormEvent) => {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || !selectedRoom || !socketRef.current) return;
+    if (!content || !selectedRoom || sending) return;
 
     setSending(true);
     setError(null);
-    socketRef.current.emit(
-      "message:send",
-      { roomId: selectedRoom.id, content },
-      (response: SocketAck<{ message: ChatMessage }>) => {
-        setSending(false);
-        if (!response.success) {
-          setError(response.error || "Unable to send message");
-          return;
-        }
-        setDraft("");
-      },
-    );
+    if (socketConnected && socketRef.current?.connected) {
+      socketRef.current.emit(
+        "message:send",
+        { roomId: selectedRoom.id, content },
+        (response: SocketAck<{ message: ChatMessage }>) => {
+          setSending(false);
+          if (!response.success) {
+            setError(response.error || "Unable to send message");
+            return;
+          }
+          setDraft("");
+        },
+      );
+      return;
+    }
+
+    try {
+      const data = await authenticatedRequest<{ message: ChatMessage }>(
+        `/api/v1/chat/rooms/${selectedRoom.id}/messages`,
+        { method: "POST", body: { content } },
+      );
+      setMessages((current) =>
+        current.some(({ id }) => id === data.message.id)
+          ? current
+          : [...current, data.message],
+      );
+      setDraft("");
+      setNotice("Message saved while live delivery reconnects.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to send message",
+      );
+    } finally {
+      setSending(false);
+    }
   };
 
   const submitAuth = async (event: FormEvent) => {
@@ -1959,7 +2005,7 @@ export default function Home() {
                 </div>
                 <button
                   type="submit"
-                  disabled={!draft.trim() || sending || !socketConnected}
+                  disabled={!draft.trim() || sending}
                   aria-label="Send message"
                 >
                   {sending ? (

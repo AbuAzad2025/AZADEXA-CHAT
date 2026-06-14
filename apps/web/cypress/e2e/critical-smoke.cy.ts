@@ -65,6 +65,32 @@ describe("critical signed-in journey", () => {
         nextCursor: null,
       },
     }).as("roomMessages");
+    cy.intercept(
+      "POST",
+      `${API_URL}/api/v1/chat/rooms/${room.id}/messages`,
+      (request) => {
+        request.reply({
+          statusCode: 201,
+          body: {
+            success: true,
+            data: {
+              message: {
+                id: "cmqd06xfa0000cn13o3jjb021",
+                roomId: room.id,
+                content: request.body.content,
+                type: "TEXT",
+                replyTo: null,
+                isEdited: false,
+                isDeleted: false,
+                createdAt: "2026-06-14T01:03:00.000Z",
+                updatedAt: "2026-06-14T01:03:00.000Z",
+                sender: alice,
+              },
+            },
+          },
+        });
+      },
+    ).as("sendRoomFallback");
     cy.intercept("POST", `${API_URL}/api/v1/reports`, {
       statusCode: 201,
       body: {
@@ -110,6 +136,31 @@ describe("critical signed-in journey", () => {
       success: true,
       data: { updatedCount: 0 },
     }).as("markRead");
+    cy.intercept(
+      "POST",
+      `${API_URL}/api/v1/chat/private/${bobby.id}/messages`,
+      (request) => {
+        request.reply({
+          statusCode: 201,
+          body: {
+            success: true,
+            data: {
+              message: {
+                id: "cmqd06xfa0000cn13o3jjb040",
+                senderId: alice.id,
+                receiverId: bobby.id,
+                content: request.body.content,
+                type: "TEXT",
+                isRead: false,
+                createdAt: "2026-06-14T01:10:00.000Z",
+                sender: alice,
+                receiver: bobby,
+              },
+            },
+          },
+        });
+      },
+    ).as("sendDirectFallback");
     cy.intercept("GET", `${API_URL}/api/v1/users/me`, {
       success: true,
       data: {
@@ -169,6 +220,14 @@ describe("critical signed-in journey", () => {
     cy.contains("button", "Open Table").click();
     cy.wait(["@joinRoom", "@roomMessages"]);
     cy.contains("Send money to unlock a special prize.").should("be.visible");
+    cy.get('textarea[aria-label="Message"]').type(
+      "Saved even while live delivery reconnects.",
+    );
+    cy.get('button[aria-label="Send message"]').click();
+    cy.wait("@sendRoomFallback");
+    cy.contains("Saved even while live delivery reconnects.").should(
+      "be.visible",
+    );
 
     cy.get('button[aria-label="Report message from bobby"]').click();
     cy.get('[role="dialog"][aria-labelledby="report-dialog-title"]').within(
@@ -197,7 +256,12 @@ describe("critical signed-in journey", () => {
     cy.contains("button", "@bobby").click();
     cy.wait(["@directMessages", "@markRead"]);
     cy.contains("h2", "@bobby").should("be.visible");
-    cy.get('textarea[aria-label="Message bobby"]').should("be.visible");
+    cy.get('textarea[aria-label="Message bobby"]').type(
+      "This direct message uses the fallback.",
+    );
+    cy.get('button[aria-label="Send private message to bobby"]').click();
+    cy.wait("@sendDirectFallback");
+    cy.contains("This direct message uses the fallback.").should("be.visible");
 
     cy.get("button.user-chip").click();
     cy.wait("@account");

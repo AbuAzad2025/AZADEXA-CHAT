@@ -314,7 +314,7 @@ export function DirectPanel({
         </div>
         <button
           type="submit"
-          disabled={!draft.trim() || sending || !connected}
+          disabled={!draft.trim() || sending}
           aria-label={`Send private message to ${user.username}`}
         >
           {sending ? (
