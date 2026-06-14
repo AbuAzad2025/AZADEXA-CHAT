@@ -19,6 +19,7 @@ import {
   Languages,
   Loader2,
   LogOut,
+  Mail,
   MessageCircle,
   Plus,
   RefreshCw,
@@ -32,6 +33,13 @@ import {
   X,
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import {
+  DirectConversation,
+  DirectPanel,
+  DirectRail,
+  DirectUser,
+  PrivateMessage,
+} from "@/components/DirectMessagesWorkspace";
 import {
   AdminReport,
   ModerationFilter,
@@ -165,7 +173,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<
-    "rooms" | "zesty" | "moderation"
+    "rooms" | "direct" | "zesty" | "moderation"
   >("rooms");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -218,12 +226,28 @@ export default function Home() {
   const [moderationLoading, setModerationLoading] = useState(false);
   const [moderationUpdating, setModerationUpdating] = useState(false);
   const [moderationResolution, setModerationResolution] = useState("");
+  const [directConversations, setDirectConversations] = useState<
+    DirectConversation[]
+  >([]);
+  const [directSearchResults, setDirectSearchResults] = useState<DirectUser[]>([]);
+  const [selectedDirectUser, setSelectedDirectUser] =
+    useState<DirectUser | null>(null);
+  const [directMessages, setDirectMessages] = useState<PrivateMessage[]>([]);
+  const [directNextCursor, setDirectNextCursor] = useState<string | null>(null);
+  const [directDraft, setDirectDraft] = useState("");
+  const [directLoading, setDirectLoading] = useState(false);
+  const [directSearching, setDirectSearching] = useState(false);
+  const [directOlderLoading, setDirectOlderLoading] = useState(false);
+  const [directSending, setDirectSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const selectedRoomRef = useRef<Room | null>(null);
+  const selectedDirectUserRef = useRef<DirectUser | null>(null);
+  const workspaceModeRef = useRef(workspaceMode);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const zestyEndRef = useRef<HTMLDivElement | null>(null);
+  const directEndRef = useRef<HTMLDivElement | null>(null);
   const isModerator =
     session !== null &&
     ["MODERATOR", "ADMIN", "SUPER_ADMIN"].includes(session.user.role);
@@ -261,6 +285,12 @@ export default function Home() {
       setSelectedModerationReport(null);
       setModerationFilter("ALL");
       setModerationResolution("");
+      setDirectConversations([]);
+      setDirectSearchResults([]);
+      setSelectedDirectUser(null);
+      setDirectMessages([]);
+      setDirectNextCursor(null);
+      setDirectDraft("");
       window.localStorage.removeItem(STORAGE_KEY);
     }
   }, []);
@@ -346,6 +376,14 @@ export default function Home() {
   }, [selectedRoom]);
 
   useEffect(() => {
+    selectedDirectUserRef.current = selectedDirectUser;
+  }, [selectedDirectUser]);
+
+  useEffect(() => {
+    workspaceModeRef.current = workspaceMode;
+  }, [workspaceMode]);
+
+  useEffect(() => {
     if (!session) {
       socketRef.current?.disconnect();
       socketRef.current = null;
@@ -377,6 +415,43 @@ export default function Home() {
           : [...current, message]
       );
     });
+    socket.on("private:new", (message: PrivateMessage) => {
+      const otherUser =
+        message.senderId === session.user.id ? message.receiver : message.sender;
+      const conversationOpen =
+        workspaceModeRef.current === "direct" &&
+        selectedDirectUserRef.current?.id === otherUser.id;
+      const incoming = message.receiverId === session.user.id;
+
+      setDirectConversations((current) => {
+        const existing = current.find(({ user }) => user.id === otherUser.id);
+        return [
+          {
+            user: otherUser,
+            lastMessage: message,
+            unreadCount:
+              incoming && !conversationOpen
+                ? (existing?.unreadCount || 0) + 1
+                : 0,
+          },
+          ...current.filter(({ user }) => user.id !== otherUser.id),
+        ];
+      });
+
+      if (conversationOpen) {
+        setDirectMessages((current) =>
+          current.some(({ id }) => id === message.id)
+            ? current
+            : [...current, message]
+        );
+        if (incoming) {
+          void apiRequest(`/api/v1/chat/private/${otherUser.id}/read`, {
+            method: "POST",
+            token: session.accessToken,
+          });
+        }
+      }
+    });
     socket.on(
       "operation:error",
       ({ error: socketError }: { error: string }) => setError(socketError)
@@ -395,6 +470,10 @@ export default function Home() {
   useEffect(() => {
     zestyEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [zestyMessages.length]);
+
+  useEffect(() => {
+    directEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [directMessages.length]);
 
   const refreshZestyConversations = useCallback(async () => {
     const data = await authenticatedRequest<{
@@ -677,6 +756,158 @@ export default function Home() {
     }
   };
 
+  const loadDirectConversations = useCallback(async () => {
+    if (!session) return;
+    setDirectLoading(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<{
+        conversations: DirectConversation[];
+      }>("/api/v1/chat/private/conversations");
+      setDirectConversations(data.conversations);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load direct messages"
+      );
+    } finally {
+      setDirectLoading(false);
+    }
+  }, [authenticatedRequest, session]);
+
+  useEffect(() => {
+    if (workspaceMode !== "direct" || !session) return;
+    const timer = window.setTimeout(
+      () => void loadDirectConversations(),
+      0
+    );
+    return () => window.clearTimeout(timer);
+  }, [loadDirectConversations, session, workspaceMode]);
+
+  const searchDirectUsers = async (query: string) => {
+    if (query.length < 2) {
+      setDirectSearchResults([]);
+      return;
+    }
+    setDirectSearching(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<{ users: DirectUser[] }>(
+        `/api/v1/users/search?q=${encodeURIComponent(query)}`
+      );
+      setDirectSearchResults(data.users);
+      if (data.users.length === 0) {
+        setNotice("No matching usernames found.");
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to search users"
+      );
+    } finally {
+      setDirectSearching(false);
+    }
+  };
+
+  const openDirectConversation = async (user: DirectUser) => {
+    setSelectedDirectUser(user);
+    setDirectSearchResults([]);
+    setDirectMessages([]);
+    setDirectNextCursor(null);
+    setDirectLoading(true);
+    setError(null);
+    try {
+      const data = await authenticatedRequest<{
+        user: DirectUser;
+        messages: PrivateMessage[];
+        nextCursor: string | null;
+      }>(`/api/v1/chat/private/${user.id}/messages?limit=50`);
+      await authenticatedRequest<{ updatedCount: number }>(
+        `/api/v1/chat/private/${user.id}/read`,
+        { method: "POST" }
+      );
+      setSelectedDirectUser(data.user);
+      setDirectMessages(
+        data.messages.map((message) =>
+          message.receiverId === session?.user.id
+            ? { ...message, isRead: true }
+            : message
+        )
+      );
+      setDirectNextCursor(data.nextCursor);
+      setDirectConversations((current) =>
+        current.map((conversation) =>
+          conversation.user.id === user.id
+            ? { ...conversation, unreadCount: 0 }
+            : conversation
+        )
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to open this conversation"
+      );
+    } finally {
+      setDirectLoading(false);
+    }
+  };
+
+  const loadOlderDirectMessages = async () => {
+    if (!selectedDirectUser || !directNextCursor || directOlderLoading) return;
+    setDirectOlderLoading(true);
+    try {
+      const data = await authenticatedRequest<{
+        messages: PrivateMessage[];
+        nextCursor: string | null;
+      }>(
+        `/api/v1/chat/private/${selectedDirectUser.id}/messages?limit=50&before=${encodeURIComponent(
+          directNextCursor
+        )}`
+      );
+      setDirectMessages((current) => [...data.messages, ...current]);
+      setDirectNextCursor(data.nextCursor);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load earlier messages"
+      );
+    } finally {
+      setDirectOlderLoading(false);
+    }
+  };
+
+  const sendDirectMessage = (event: FormEvent) => {
+    event.preventDefault();
+    const content = directDraft.trim();
+    if (
+      !content ||
+      !selectedDirectUser ||
+      !socketRef.current ||
+      directSending
+    ) {
+      return;
+    }
+
+    setDirectSending(true);
+    setError(null);
+    socketRef.current.emit(
+      "private:send",
+      { receiverId: selectedDirectUser.id, content },
+      (response: SocketAck<{ message: PrivateMessage }>) => {
+        setDirectSending(false);
+        if (!response.success) {
+          setError(response.error || "Unable to send private message");
+          return;
+        }
+        setDirectDraft("");
+      }
+    );
+  };
+
   const loadHistory = useCallback(
     async (roomId: string) => {
       setHistoryLoading(true);
@@ -873,6 +1104,14 @@ export default function Home() {
     () => Array.from(new Set(rooms.map((room) => room.language))).sort(),
     [rooms]
   );
+  const directUnreadCount = useMemo(
+    () =>
+      directConversations.reduce(
+        (total, conversation) => total + conversation.unreadCount,
+        0
+      ),
+    [directConversations]
+  );
 
   if (!sessionReady) {
     return (
@@ -957,6 +1196,26 @@ export default function Home() {
             >
               <Globe2 size={15} />
               Rooms
+            </button>
+            <button
+              className={workspaceMode === "direct" ? "is-active" : ""}
+              onClick={() => {
+                if (!session) return;
+                setWorkspaceMode("direct");
+                if (selectedDirectUser) {
+                  void openDirectConversation(selectedDirectUser);
+                }
+              }}
+              disabled={!session}
+              title={session ? "Open direct messages" : "Sign in to message people"}
+            >
+              <Mail size={15} />
+              Direct
+              {directUnreadCount > 0 && (
+                <span className="workspace-unread">
+                  {Math.min(directUnreadCount, 99)}
+                </span>
+              )}
             </button>
             <button
               className={workspaceMode === "zesty" ? "is-active" : ""}
@@ -1077,6 +1336,16 @@ export default function Home() {
                 )}
               </div>
             </>
+          ) : workspaceMode === "direct" ? (
+            <DirectRail
+              conversations={directConversations}
+              searchResults={directSearchResults}
+              selectedUserId={selectedDirectUser?.id || null}
+              loading={directLoading}
+              searching={directSearching}
+              onSearch={(query) => void searchDirectUsers(query)}
+              onSelect={(user) => void openDirectConversation(user)}
+            />
           ) : workspaceMode === "zesty" ? (
             <>
               <div className="rail-heading zesty-rail-heading">
@@ -1193,7 +1462,23 @@ export default function Home() {
         </aside>
 
         <section className="conversation-panel">
-          {workspaceMode === "moderation" && isModerator ? (
+          {workspaceMode === "direct" && session ? (
+            <DirectPanel
+              currentUserId={session.user.id}
+              user={selectedDirectUser}
+              messages={directMessages}
+              nextCursor={directNextCursor}
+              draft={directDraft}
+              loading={directLoading}
+              olderLoading={directOlderLoading}
+              sending={directSending}
+              connected={socketConnected}
+              endRef={directEndRef}
+              onDraftChange={setDirectDraft}
+              onLoadOlder={() => void loadOlderDirectMessages()}
+              onSend={sendDirectMessage}
+            />
+          ) : workspaceMode === "moderation" && isModerator ? (
             <ModerationPanel
               report={selectedModerationReport}
               resolution={moderationResolution}
