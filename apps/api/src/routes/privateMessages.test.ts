@@ -9,7 +9,8 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { AuthenticatedRequest } from "../middleware/auth";
-import { errorHandler } from "../middleware/errorHandler";
+import { AppError, errorHandler } from "../middleware/errorHandler";
+import { MESSAGE_RATE_LIMIT_ERROR } from "../middleware/rateLimit";
 import { createPrivateMessagesRouter } from "./privateMessages";
 import { createUsersRouter } from "./users";
 
@@ -77,6 +78,7 @@ const users = [alice, bob, carol];
 let activeUser = alice;
 let messageSequence = 0;
 let privateMessages: TestPrivateMessage[] = [];
+let blockMessageQuota = false;
 
 const publicUser = (userId: string) => {
   const user = users.find(({ id }) => id === userId);
@@ -98,7 +100,7 @@ const presentedMessage = (message: TestPrivateMessage) => ({
 const inConversation = (
   message: TestPrivateMessage,
   firstUserId: string,
-  secondUserId: string
+  secondUserId: string,
 ) =>
   (message.senderId === firstUserId && message.receiverId === secondUserId) ||
   (message.senderId === secondUserId && message.receiverId === firstUserId);
@@ -125,7 +127,7 @@ const fakePrisma = {
             user.id !== where.id.not &&
             user.username
               .toLowerCase()
-              .includes(where.username.contains.toLowerCase())
+              .includes(where.username.contains.toLowerCase()),
         )
         .sort((left, right) => left.username.localeCompare(right.username))
         .slice(0, take)
@@ -158,14 +160,14 @@ const fakePrisma = {
           second.receiverId
         ) {
           results = results.filter((message) =>
-            inConversation(message, first.senderId!, first.receiverId!)
+            inConversation(message, first.senderId!, first.receiverId!),
           );
         } else {
           const currentUserId = first.senderId || first.receiverId;
           results = results.filter(
             (message) =>
               message.senderId === currentUserId ||
-              message.receiverId === currentUserId
+              message.receiverId === currentUserId,
           );
         }
       }
@@ -183,7 +185,7 @@ const fakePrisma = {
             (message) =>
               message.createdAt < cursorDate ||
               (message.createdAt.getTime() === cursorDate.getTime() &&
-                Boolean(cursorId && message.id < cursorId))
+                Boolean(cursorId && message.id < cursorId)),
           );
         }
       }
@@ -192,7 +194,7 @@ const fakePrisma = {
         .sort(
           (left, right) =>
             right.createdAt.getTime() - left.createdAt.getTime() ||
-            right.id.localeCompare(left.id)
+            right.id.localeCompare(left.id),
         )
         .slice(0, take)
         .map(presentedMessage);
@@ -209,11 +211,9 @@ const fakePrisma = {
       const message = privateMessages.find(
         (item) =>
           item.id === where.id &&
-          inConversation(item, first.senderId, first.receiverId)
+          inConversation(item, first.senderId, first.receiverId),
       );
-      return message
-        ? { id: message.id, createdAt: message.createdAt }
-        : null;
+      return message ? { id: message.id, createdAt: message.createdAt } : null;
     },
     create: async ({
       data,
@@ -245,10 +245,10 @@ const fakePrisma = {
         .filter(
           (message) =>
             message.receiverId === where.receiverId &&
-            message.isRead === where.isRead
+            message.isRead === where.isRead,
         )
         .forEach((message) =>
-          counts.set(message.senderId, (counts.get(message.senderId) || 0) + 1)
+          counts.set(message.senderId, (counts.get(message.senderId) || 0) + 1),
         );
       return [...counts].map(([senderId, count]) => ({
         senderId,
@@ -291,14 +291,19 @@ app.use(
   createUsersRouter({
     prisma: fakePrisma,
     authenticateMiddleware: testAuthenticate,
-  })
+  }),
 );
 app.use(
   "/api/v1/chat/private",
   createPrivateMessagesRouter({
     prisma: fakePrisma,
     authenticateMiddleware: testAuthenticate,
-  })
+    consumeQuota: () => {
+      if (blockMessageQuota) {
+        throw new AppError(MESSAGE_RATE_LIMIT_ERROR, 429);
+      }
+    },
+  }),
 );
 app.use(errorHandler);
 
@@ -307,7 +312,7 @@ let baseUrl = "";
 
 const apiRequest = async (
   route: string,
-  options: { method?: string; body?: object } = {}
+  options: { method?: string; body?: object } = {},
 ): Promise<{ status: number; body: TestApiResponse }> => {
   const response = await fetch(`${baseUrl}${route}`, {
     method: options.method || "GET",
@@ -333,6 +338,7 @@ beforeEach(() => {
   activeUser = alice;
   messageSequence = 0;
   privateMessages = [];
+  blockMessageQuota = false;
 });
 
 after(() => {
@@ -346,7 +352,7 @@ describe("private messages API", () => {
     assert.equal(response.status, 200);
     assert.deepEqual(
       response.body.data?.users?.map(({ username }) => username),
-      ["bobby"]
+      ["bobby"],
     );
   });
 
@@ -357,7 +363,7 @@ describe("private messages API", () => {
       {
         method: "POST",
         body: { content: "Hello Alice" },
-      }
+      },
     );
     assert.equal(incoming.status, 201);
 
@@ -367,37 +373,31 @@ describe("private messages API", () => {
       {
         method: "POST",
         body: { content: "Hi Bobby" },
-      }
+      },
     );
     assert.equal(outgoing.status, 201);
 
     const conversations = await apiRequest(
-      "/api/v1/chat/private/conversations"
+      "/api/v1/chat/private/conversations",
     );
     assert.equal(conversations.status, 200);
     assert.equal(conversations.body.data?.conversations?.[0]?.user.id, bob.id);
     assert.equal(
       conversations.body.data?.conversations?.[0]?.lastMessage.content,
-      "Hi Bobby"
+      "Hi Bobby",
     );
-    assert.equal(
-      conversations.body.data?.conversations?.[0]?.unreadCount,
-      1
-    );
+    assert.equal(conversations.body.data?.conversations?.[0]?.unreadCount, 1);
 
-    const history = await apiRequest(
-      `/api/v1/chat/private/${bob.id}/messages`
-    );
+    const history = await apiRequest(`/api/v1/chat/private/${bob.id}/messages`);
     assert.equal(history.status, 200);
     assert.deepEqual(
       history.body.data?.messages?.map(({ content }) => content),
-      ["Hello Alice", "Hi Bobby"]
+      ["Hello Alice", "Hi Bobby"],
     );
 
-    const markedRead = await apiRequest(
-      `/api/v1/chat/private/${bob.id}/read`,
-      { method: "POST" }
-    );
+    const markedRead = await apiRequest(`/api/v1/chat/private/${bob.id}/read`, {
+      method: "POST",
+    });
     assert.equal(markedRead.status, 200);
     assert.equal(markedRead.body.data?.updatedCount, 1);
 
@@ -411,10 +411,25 @@ describe("private messages API", () => {
       {
         method: "POST",
         body: { content: "Talking to myself" },
-      }
+      },
     );
 
     assert.equal(response.status, 400);
     assert.equal(response.body.error, "You cannot message yourself");
+  });
+
+  it("rejects private messages when the user message quota is exhausted", async () => {
+    blockMessageQuota = true;
+    const response = await apiRequest(
+      `/api/v1/chat/private/${bob.id}/messages`,
+      {
+        method: "POST",
+        body: { content: "one too many" },
+      },
+    );
+
+    assert.equal(response.status, 429);
+    assert.equal(response.body.error, MESSAGE_RATE_LIMIT_ERROR);
+    assert.equal(privateMessages.length, 0);
   });
 });

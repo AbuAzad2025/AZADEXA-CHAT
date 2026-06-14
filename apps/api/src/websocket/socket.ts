@@ -3,6 +3,10 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { z } from "zod";
 import { AppError } from "../middleware/errorHandler";
+import {
+  consumeMessageQuota,
+  ConsumeMessageQuota,
+} from "../middleware/rateLimit";
 import { verifyToken } from "../utils/jwt";
 import { logger } from "../utils/logger";
 
@@ -13,21 +17,15 @@ type SocketResponse<T> =
 type SocketAck<T> = (response: SocketResponse<T>) => void;
 
 interface ClientToServerEvents {
-  "room:join": (
-    payload: unknown,
-    ack?: SocketAck<{ roomId: string }>
-  ) => void;
-  "room:leave": (
-    payload: unknown,
-    ack?: SocketAck<{ roomId: string }>
-  ) => void;
+  "room:join": (payload: unknown, ack?: SocketAck<{ roomId: string }>) => void;
+  "room:leave": (payload: unknown, ack?: SocketAck<{ roomId: string }>) => void;
   "message:send": (
     payload: unknown,
-    ack?: SocketAck<{ message: SocketMessage }>
+    ack?: SocketAck<{ message: SocketMessage }>,
   ) => void;
   "private:send": (
     payload: unknown,
-    ack?: SocketAck<{ message: SocketPrivateMessage }>
+    ack?: SocketAck<{ message: SocketPrivateMessage }>,
   ) => void;
 }
 
@@ -64,6 +62,10 @@ type ChatServer = SocketIOServer<
   InterServerEvents,
   SocketData
 >;
+
+interface WebSocketDependencies {
+  consumeQuota?: ConsumeMessageQuota;
+}
 
 let socketServer: ChatServer | null = null;
 
@@ -141,7 +143,7 @@ export const disconnectSessionSockets = (sessionId: string) => {
 
 const requireActiveSession = async (
   prisma: PrismaClient,
-  socket: ChatSocket
+  socket: ChatSocket,
 ) => {
   const session = await prisma.session.findFirst({
     where: {
@@ -159,7 +161,10 @@ const requireActiveSession = async (
 
 const parseOrThrow = <T>(result: z.SafeParseReturnType<unknown, T>): T => {
   if (!result.success) {
-    throw new AppError(result.error.issues[0]?.message || "Invalid request", 400);
+    throw new AppError(
+      result.error.issues[0]?.message || "Invalid request",
+      400,
+    );
   }
   return result.data;
 };
@@ -183,7 +188,7 @@ const respondWithError = <T>(
   socket: ChatSocket,
   event: string,
   ack: SocketAck<T> | undefined,
-  error: unknown
+  error: unknown,
 ) => {
   const message = socketErrorMessage(error);
   logger.warn(`Socket ${event} failed: ${message}`, {
@@ -198,7 +203,11 @@ const respondWithError = <T>(
   socket.emit("operation:error", { event, error: message });
 };
 
-export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
+export const setupWebSocket = (
+  server: HttpServer,
+  prisma: PrismaClient,
+  { consumeQuota = consumeMessageQuota }: WebSocketDependencies = {},
+) => {
   const io: ChatServer = new SocketIOServer<
     ClientToServerEvents,
     ServerToClientEvents,
@@ -219,7 +228,10 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
       if (!token) throw new AppError("Authentication required", 401);
 
       const payload = verifyToken(token);
-      if (typeof payload.userId !== "string" || typeof payload.exp !== "number") {
+      if (
+        typeof payload.userId !== "string" ||
+        typeof payload.exp !== "number"
+      ) {
         throw new AppError("Invalid access token", 401);
       }
       const tokenExpiresAt = payload.exp * 1000;
@@ -250,7 +262,9 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
       next();
     } catch (error) {
       const message =
-        error instanceof AppError ? error.message : "Invalid or expired access token";
+        error instanceof AppError
+          ? error.message
+          : "Invalid or expired access token";
       next(new Error(message));
     }
   });
@@ -260,7 +274,7 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
     void socket.join(userChannel(socket.data.user.id));
     const tokenExpiryTimer = setTimeout(
       () => socket.disconnect(true),
-      socket.data.tokenExpiresAt - Date.now()
+      socket.data.tokenExpiresAt - Date.now(),
     );
 
     logger.info("Socket connected", {
@@ -285,7 +299,8 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
           },
           select: { id: true },
         });
-        if (!membership) throw new AppError("Join the room before connecting", 403);
+        if (!membership)
+          throw new AppError("Join the room before connecting", 403);
 
         await socket.join(roomChannel(roomId));
         ack?.({ success: true, data: { roomId } });
@@ -316,7 +331,7 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
       try {
         await requireActiveSession(prisma, socket);
         const { roomId, content } = parseOrThrow(
-          sendMessageSchema.safeParse(payload)
+          sendMessageSchema.safeParse(payload),
         );
 
         const room = await prisma.room.findUnique({
@@ -326,7 +341,10 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
         if (!room) throw new AppError("Room not found", 404);
 
         if (!socket.rooms.has(roomChannel(roomId))) {
-          throw new AppError("Connect to the room before sending messages", 403);
+          throw new AppError(
+            "Connect to the room before sending messages",
+            403,
+          );
         }
 
         const membership = await prisma.roomMember.findUnique({
@@ -335,11 +353,13 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
           },
           select: { isMuted: true },
         });
-        if (!membership) throw new AppError("Join the room to send messages", 403);
+        if (!membership)
+          throw new AppError("Join the room to send messages", 403);
         if (membership.isMuted) {
           throw new AppError("You are muted in this room", 403);
         }
 
+        consumeQuota(socket.data.user.id);
         const message = await prisma.message.create({
           data: {
             roomId,
@@ -361,7 +381,7 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
       try {
         await requireActiveSession(prisma, socket);
         const { receiverId, content } = parseOrThrow(
-          sendPrivateMessageSchema.safeParse(payload)
+          sendPrivateMessageSchema.safeParse(payload),
         );
         if (receiverId === socket.data.user.id) {
           throw new AppError("You cannot message yourself", 400);
@@ -373,6 +393,7 @@ export const setupWebSocket = (server: HttpServer, prisma: PrismaClient) => {
         });
         if (!receiver) throw new AppError("User not found", 404);
 
+        consumeQuota(socket.data.user.id);
         const message = await prisma.privateMessage.create({
           data: {
             senderId: socket.data.user.id,

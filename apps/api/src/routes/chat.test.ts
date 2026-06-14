@@ -4,7 +4,8 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import express, { RequestHandler } from "express";
 import { MessageType, PrismaClient, RoomRole, RoomType } from "@prisma/client";
 import { AuthenticatedRequest } from "../middleware/auth";
-import { errorHandler } from "../middleware/errorHandler";
+import { AppError, errorHandler } from "../middleware/errorHandler";
+import { MESSAGE_RATE_LIMIT_ERROR } from "../middleware/rateLimit";
 import { createChatRouter } from "./chat";
 
 interface TestRoom {
@@ -98,6 +99,7 @@ let memberships: TestMembership[] = [];
 let messages: TestMessage[] = [];
 let membershipSequence = 0;
 let messageSequence = 0;
+let blockMessageQuota = false;
 
 const membershipCount = (roomId: string) =>
   memberships.filter((membership) => membership.roomId === roomId).length;
@@ -288,6 +290,11 @@ app.use(
   createChatRouter({
     prisma: fakePrisma,
     authenticateMiddleware: testAuthenticate,
+    consumeQuota: () => {
+      if (blockMessageQuota) {
+        throw new AppError(MESSAGE_RATE_LIMIT_ERROR, 429);
+      }
+    },
   }),
 );
 app.use(errorHandler);
@@ -332,6 +339,7 @@ beforeEach(() => {
   messages = [];
   membershipSequence = 0;
   messageSequence = 0;
+  blockMessageQuota = false;
 });
 
 after(() => {
@@ -434,5 +442,21 @@ describe("public chat API", () => {
       { method: "POST", body: { content: "blocked" } },
     );
     assert.equal(muted.status, 403);
+  });
+
+  it("rejects room messages when the user message quota is exhausted", async () => {
+    await apiRequest(`/api/v1/chat/rooms/${publicRoom.id}/join`, {
+      method: "POST",
+    });
+    blockMessageQuota = true;
+
+    const limited = await apiRequest(
+      `/api/v1/chat/rooms/${publicRoom.id}/messages`,
+      { method: "POST", body: { content: "one too many" } },
+    );
+
+    assert.equal(limited.status, 429);
+    assert.equal(limited.body.error, MESSAGE_RATE_LIMIT_ERROR);
+    assert.equal(messages.length, 0);
   });
 });

@@ -3,6 +3,10 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { authenticate, AuthenticatedRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import {
+  consumeMessageQuota,
+  ConsumeMessageQuota,
+} from "../middleware/rateLimit";
 
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_CONVERSATIONS = 50;
@@ -52,11 +56,15 @@ export type PrivateMessagePayload = Prisma.PrivateMessageGetPayload<{
 interface PrivateMessagesRouterDependencies {
   prisma?: PrismaClient;
   authenticateMiddleware?: RequestHandler;
+  consumeQuota?: ConsumeMessageQuota;
 }
 
 const parseOrThrow = <T>(result: z.SafeParseReturnType<unknown, T>): T => {
   if (!result.success) {
-    throw new AppError(result.error.issues[0]?.message || "Invalid request", 400);
+    throw new AppError(
+      result.error.issues[0]?.message || "Invalid request",
+      400,
+    );
   }
   return result.data;
 };
@@ -71,6 +79,7 @@ const conversationWhere = (currentUserId: string, otherUserId: string) => ({
 export const createPrivateMessagesRouter = ({
   prisma = new PrismaClient(),
   authenticateMiddleware = authenticate,
+  consumeQuota = consumeMessageQuota,
 }: PrivateMessagesRouterDependencies = {}): Router => {
   const router = Router();
 
@@ -94,7 +103,7 @@ export const createPrivateMessagesRouter = ({
         _count: { _all: true },
       });
       const unreadCounts = new Map(
-        unreadBySender.map((entry) => [entry.senderId, entry._count._all])
+        unreadBySender.map((entry) => [entry.senderId, entry._count._all]),
       );
 
       const seen = new Set<string>();
@@ -125,10 +134,10 @@ export const createPrivateMessagesRouter = ({
     try {
       const currentUserId = (req as AuthenticatedRequest).user!.id;
       const { userId: otherUserId } = parseOrThrow(
-        userParamsSchema.safeParse(req.params)
+        userParamsSchema.safeParse(req.params),
       );
       const { limit, before } = parseOrThrow(
-        messageHistoryQuerySchema.safeParse(req.query)
+        messageHistoryQuerySchema.safeParse(req.query),
       );
       if (currentUserId === otherUserId) {
         throw new AppError("Private conversations require another user", 400);
@@ -194,10 +203,10 @@ export const createPrivateMessagesRouter = ({
     try {
       const senderId = (req as AuthenticatedRequest).user!.id;
       const { userId: receiverId } = parseOrThrow(
-        userParamsSchema.safeParse(req.params)
+        userParamsSchema.safeParse(req.params),
       );
       const { content } = parseOrThrow(
-        sendPrivateMessageSchema.safeParse(req.body)
+        sendPrivateMessageSchema.safeParse(req.body),
       );
       if (senderId === receiverId) {
         throw new AppError("You cannot message yourself", 400);
@@ -209,6 +218,7 @@ export const createPrivateMessagesRouter = ({
       });
       if (!receiver) throw new AppError("User not found", 404);
 
+      consumeQuota(senderId);
       const message = await prisma.privateMessage.create({
         data: {
           senderId,
@@ -232,7 +242,7 @@ export const createPrivateMessagesRouter = ({
     try {
       const receiverId = (req as AuthenticatedRequest).user!.id;
       const { userId: senderId } = parseOrThrow(
-        userParamsSchema.safeParse(req.params)
+        userParamsSchema.safeParse(req.params),
       );
       if (receiverId === senderId) {
         throw new AppError("Private conversations require another user", 400);

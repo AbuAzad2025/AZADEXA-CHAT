@@ -3,6 +3,10 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { authenticate, AuthenticatedRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import {
+  consumeMessageQuota,
+  ConsumeMessageQuota,
+} from "../middleware/rateLimit";
 
 const MAX_JOIN_ATTEMPTS = 3;
 const DEFAULT_MESSAGE_LIMIT = 50;
@@ -48,11 +52,13 @@ const parseOrThrow = <T>(result: z.SafeParseReturnType<unknown, T>): T => {
 interface ChatRouterDependencies {
   prisma?: PrismaClient;
   authenticateMiddleware?: RequestHandler;
+  consumeQuota?: ConsumeMessageQuota;
 }
 
 export const createChatRouter = ({
   prisma = new PrismaClient(),
   authenticateMiddleware = authenticate,
+  consumeQuota = consumeMessageQuota,
 }: ChatRouterDependencies = {}): Router => {
   const router = Router();
 
@@ -303,6 +309,7 @@ export const createChatRouter = ({
         if (membership.isMuted)
           throw new AppError("You are muted in this room", 403);
 
+        consumeQuota(userId);
         const message = await prisma.message.create({
           data: {
             roomId,

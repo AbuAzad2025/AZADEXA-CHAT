@@ -6,6 +6,8 @@ import {
   io as createSocketClient,
   Socket as ClientSocket,
 } from "socket.io-client";
+import { AppError } from "../middleware/errorHandler";
+import { MESSAGE_RATE_LIMIT_ERROR } from "../middleware/rateLimit";
 import { generateToken } from "../utils/jwt";
 import { setupWebSocket } from "./socket";
 
@@ -46,6 +48,7 @@ const users = [alice, bob];
 let sessions: TestSession[] = [];
 let memberships = new Set<string>();
 let messageSequence = 0;
+let quotaBlockedUsers = new Set<string>();
 
 const fakePrisma = {
   session: {
@@ -204,7 +207,13 @@ before(() => {
   process.env.JWT_SECRET = "socket-test-access-secret";
   process.env.FRONTEND_URL = "http://localhost:3000";
   server = createServer();
-  setupWebSocket(server, fakePrisma);
+  setupWebSocket(server, fakePrisma, {
+    consumeQuota: (userId) => {
+      if (quotaBlockedUsers.has(userId)) {
+        throw new AppError(MESSAGE_RATE_LIMIT_ERROR, 429);
+      }
+    },
+  });
   server.listen(0);
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -218,6 +227,7 @@ beforeEach(() => {
   clients = [];
   memberships = new Set();
   messageSequence = 0;
+  quotaBlockedUsers = new Set();
   aliceToken = generateToken(alice.id);
   bobToken = generateToken(bob.id);
   sessions = [
@@ -297,5 +307,30 @@ describe("chat WebSocket", () => {
     assert.equal(message.content, "Private hello");
     assert.equal(message.senderId, alice.id);
     assert.equal(message.receiverId, bob.id);
+  });
+
+  it("applies the same user quota to public and private socket messages", async () => {
+    memberships.add(`${roomId}:${alice.id}`);
+    const { client } = await connectClient(aliceToken);
+    const joined = await emitWithAck<{ roomId: string }>(client, "room:join", {
+      roomId,
+    });
+    assert.equal(joined.success, true);
+
+    quotaBlockedUsers.add(alice.id);
+    const publicMessage = await emitWithAck(client, "message:send", {
+      roomId,
+      content: "one too many",
+    });
+    const privateMessage = await emitWithAck(client, "private:send", {
+      receiverId: bob.id,
+      content: "still one too many",
+    });
+
+    assert.equal(publicMessage.success, false);
+    assert.equal(publicMessage.error, MESSAGE_RATE_LIMIT_ERROR);
+    assert.equal(privateMessage.success, false);
+    assert.equal(privateMessage.error, MESSAGE_RATE_LIMIT_ERROR);
+    assert.equal(messageSequence, 0);
   });
 });
